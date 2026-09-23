@@ -319,12 +319,12 @@ function ViewBody({
       <div className="mt-5 border-t border-stone pt-4">
         <div className="mb-2.5 flex items-center justify-between">
           <div className="font-mono text-[10px] uppercase tracking-wideish text-slate">Support</div>
-          {tickets.length > 0 && <span className="text-[11.5px] text-slate">{tickets.length} ticket{tickets.length === 1 ? '' : 's'}</span>}
+          {tickets.length > 0 && <span className="text-[11.5px] text-slate">{tickets.length} open ticket{tickets.length === 1 ? '' : 's'}</span>}
         </div>
         {ticketsLoading ? (
           <p className="mb-1 text-[12.5px] text-slate">Loading tickets…</p>
         ) : tickets.length === 0 ? (
-          <p className="mb-1 text-[12.5px] text-slate">No support tickets on record.</p>
+          <p className="mb-1 text-[12.5px] text-slate">No open support tickets. Completed tickets stay in Jira.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {tickets.slice(0, 6).map((t) => (

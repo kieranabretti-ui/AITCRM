@@ -23,7 +23,9 @@ export default function Support() {
       .finally(() => setLoading(false))
   }, [])
 
-  const open = useMemo(() => tickets.filter((t) => !t.resolved_at), [tickets])
+  // fetchOpenTickets() already filters to resolved_at is null — completed
+  // tickets are stowed away rather than showing up here at all.
+  const open = tickets
   const unassigned = useMemo(() => open.filter((t) => !t.assigned_staff_id), [open])
   const unmatched = useMemo(() => tickets.filter((t) => t.match_status !== 'matched'), [tickets])
   const p1Count = useMemo(() => open.filter((t) => t.severity === 'P1').length, [open])

@@ -4,11 +4,15 @@ import { supabase } from './supabase.js'
 // this module only ever reads them and adjusts the CRM-side fields
 // (client link, assignment). Status/priority/content stay Jira's.
 
+// Active only (resolved_at is null) — completed tickets are stowed away
+// rather than cluttering the customer's live support view. Jira remains
+// the full historical record for anyone who needs to look one up.
 export async function fetchTicketsForClient(clientId) {
   const { data, error } = await supabase
     .from('tickets')
     .select('*')
     .eq('client_id', clientId)
+    .is('resolved_at', null)
     .order('created_at', { ascending: false })
   if (error) throw error
   return data
@@ -28,6 +32,7 @@ export async function fetchOpenTickets() {
   const { data, error } = await supabase
     .from('tickets')
     .select('*')
+    .is('resolved_at', null)
     .order('created_at', { ascending: false })
     .limit(200)
   if (error) throw error
