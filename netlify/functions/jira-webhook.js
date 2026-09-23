@@ -221,13 +221,14 @@ async function runAiTriage(admin, { ticketRowId, fields, clientId }) {
     // Spec: if Claude is unavailable, process the ticket normally
     // without AI and escalate for manual triage — never leave it
     // silently unclassified in a queue nobody's watching.
+    console.error(`[jira-webhook] AI triage failed for ${fields.jiraIssueKey}: ${result.reason} — ${result.error || 'no further detail'}`)
     await admin.from('tickets').update({ assigned_queue: settings.escalation_queue }).eq('id', ticketRowId)
     await admin.from('ai_audit_log').insert({
       ticket_id: ticketRowId,
       decision: 'ai_unavailable',
       action_taken: 'escalated_no_ai',
       escalated: true,
-      escalation_reason: `AI unavailable (${result.reason})`,
+      escalation_reason: `AI unavailable (${result.reason})${result.error ? `: ${result.error.slice(0, 200)}` : ''}`,
     })
     return
   }
