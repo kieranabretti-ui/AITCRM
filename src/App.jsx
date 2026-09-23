@@ -6,6 +6,7 @@ import AcceptInvite from './pages/AcceptInvite.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Support from './pages/Support.jsx'
 import UnmatchedTickets from './pages/UnmatchedTickets.jsx'
+import ClosedTickets from './pages/ClosedTickets.jsx'
 import Team from './pages/Team.jsx'
 import AdminSettings from './pages/AdminSettings.jsx'
 
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/support" element={<Support />} />
           <Route path="/tickets/unmatched" element={<UnmatchedTickets />} />
+          <Route path="/tickets/closed" element={<ClosedTickets />} />
           <Route element={<ProtectedRoute ownerOnly />}>
             <Route path="/team" element={<Team />} />
             <Route path="/admin/settings" element={<AdminSettings />} />

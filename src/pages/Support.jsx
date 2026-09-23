@@ -39,11 +39,16 @@ export default function Support() {
     <div>
       <div className="mb-6 flex items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-semibold">Support</h1>
-        {unmatched.length > 0 && (
-          <Link to="/tickets/unmatched" className="btn btn-primary">
-            Review {unmatched.length} unmatched ↗
+        <div className="flex items-center gap-2.5">
+          <Link to="/tickets/closed" className="btn btn-ghost">
+            Closed tickets
           </Link>
-        )}
+          {unmatched.length > 0 && (
+            <Link to="/tickets/unmatched" className="btn btn-primary">
+              Review {unmatched.length} unmatched ↗
+            </Link>
+          )}
+        </div>
       </div>
 
       {error && (

@@ -39,6 +39,19 @@ export async function fetchOpenTickets() {
   return data
 }
 
+// The archive counterpart to fetchOpenTickets — everything stowed away
+// from the live views, most recently closed first.
+export async function fetchClosedTickets() {
+  const { data, error } = await supabase
+    .from('tickets')
+    .select('*')
+    .not('resolved_at', 'is', null)
+    .order('resolved_at', { ascending: false })
+    .limit(500)
+  if (error) throw error
+  return data
+}
+
 // Only escalations for tickets that are still open — once a ticket is
 // resolved, its past escalation isn't something anyone needs to act on
 // anymore. `!inner` turns the embed into an inner join so the
