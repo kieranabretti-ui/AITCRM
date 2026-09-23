@@ -75,7 +75,10 @@ const TRIAGE_TOOL = {
     properties: {
       severity: { type: 'string', enum: ['P1', 'P2', 'P3', 'P4'] },
       category: { type: 'string', enum: CATEGORIES },
-      confidence: { type: 'integer', minimum: 0, maximum: 100, description: 'Confidence in this classification, 0-100.' },
+      // Claude's strict tool schema doesn't support minimum/maximum on
+      // integers — an enum of 5-point steps bounds it just as well and
+      // is still strict-schema-valid.
+      confidence: { type: 'integer', enum: Array.from({ length: 21 }, (_, i) => i * 5), description: 'Confidence in this classification, 0-100 (nearest 5).' },
       reasoning: { type: 'string', description: 'One or two sentences on why this severity and category.' },
       suggested_labels: { type: 'array', items: { type: 'string' }, description: 'Short Jira labels to apply, e.g. "ai-triaged".' },
       customer_response: { type: 'string', description: 'A low-risk acknowledgement/info-request message, or an empty string if none is appropriate.' },
