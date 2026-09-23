@@ -39,11 +39,17 @@ export async function fetchOpenTickets() {
   return data
 }
 
+// Only escalations for tickets that are still open — once a ticket is
+// resolved, its past escalation isn't something anyone needs to act on
+// anymore. `!inner` turns the embed into an inner join so the
+// resolved_at filter on the joined ticket actually excludes rows,
+// rather than just nulling out the nested object.
 export async function fetchRecentEscalations() {
   const { data, error } = await supabase
     .from('ai_audit_log')
-    .select('id, ticket_id, decision, severity, category, confidence, action_taken, escalation_reason, created_at, tickets(summary, jira_issue_key, jira_url, client_id)')
+    .select('id, ticket_id, decision, severity, category, confidence, action_taken, escalation_reason, created_at, tickets!inner(summary, jira_issue_key, jira_url, client_id, resolved_at)')
     .eq('escalated', true)
+    .is('tickets.resolved_at', null)
     .order('created_at', { ascending: false })
     .limit(10)
   if (error) throw error
