@@ -43,6 +43,20 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body.' }) }
   }
 
+  // Temporary — set DEBUG_WEBHOOK=1 in Netlify while wiring up Jira's
+  // automation rule, so a payload-shape mismatch shows up in the
+  // function log instead of silently no-op'ing. Logs shape only
+  // (field names), never ticket content. Unset once confirmed working.
+  if (process.env.DEBUG_WEBHOOK) {
+    console.log('[jira-webhook] payload shape', JSON.stringify({
+      topLevelKeys: Object.keys(payload),
+      webhookEvent: payload.webhookEvent,
+      hasIssue: Boolean(payload.issue),
+      issueKey: payload.issue?.key,
+      issueFieldKeys: payload.issue?.fields ? Object.keys(payload.issue.fields) : null,
+    }))
+  }
+
   const webhookEvent = payload.webhookEvent
   const issue = payload.issue
   if (!webhookEvent || !issue?.key) {
