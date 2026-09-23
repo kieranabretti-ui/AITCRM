@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: #2c5a52;
+    color: #f4f1e9;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: theme('fontFamily.display');
+    letter-spacing: -0.01em;
+  }
+
+  :focus-visible {
+    outline: 2px solid #2c5a52;
+    outline-offset: 2px;
+  }
+
+  input, select, textarea {
+    font-family: inherit;
+  }
+}
+
+@layer components {
+  .eyebrow {
+    @apply font-mono text-[10.5px] uppercase tracking-wideish text-brass-dark;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-[4px] px-4 py-2.5 text-[13.5px] font-semibold transition-colors duration-150;
+  }
+  .btn-primary {
+    @apply bg-petrol text-white hover:bg-petrol-dark;
+  }
+  .btn-ghost {
+    @apply border border-stone bg-white text-ink hover:bg-paper-dim;
+  }
+  .btn-danger {
+    @apply border border-status-churned text-status-churned hover:bg-status-churned/10;
+  }
+
+  .field-input {
+    @apply w-full rounded-[4px] border border-stone bg-white px-3 py-2 text-[13.5px] text-ink;
+  }
+
+  .card {
+    @apply rounded-md border border-stone bg-white;
+  }
+}
