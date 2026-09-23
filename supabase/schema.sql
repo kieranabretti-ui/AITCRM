@@ -397,3 +397,45 @@ alter table public.ai_audit_log enable row level security;
 create policy "audit log readable by team members"
   on public.ai_audit_log for select to authenticated
   using (public.is_team_member());
+
+-- ---------------------------------------------------------------
+-- AI service-desk copilot (Phase 3) — see
+-- supabase/migrations/004_ai_copilot.sql for the standalone version of
+-- this block, used to upgrade an already-live database. New projects
+-- get it in this same run.
+-- ---------------------------------------------------------------
+
+alter table public.tickets
+  add column ai_disabled boolean not null default false,
+  add column severity_locked boolean not null default false,
+  add column category_locked boolean not null default false,
+  add column ai_confidence_label text check (ai_confidence_label in ('High', 'Medium', 'Low')),
+  add column ai_summary text,
+  add column ai_likely_cause text,
+  add column ai_possible_causes jsonb not null default '[]'::jsonb,
+  add column ai_recommended_action text,
+  add column ai_recommended_steps jsonb not null default '[]'::jsonb,
+  add column ai_evidence jsonb not null default '[]'::jsonb,
+  add column ai_risk text check (ai_risk in ('Low', 'Medium', 'High')),
+  add column ai_escalation_recommendation text not null default 'None'
+    check (ai_escalation_recommendation in ('None', 'Technician', 'Senior Technician', 'Security Escalation')),
+  add column ai_last_analysis_at timestamptz,
+  add column ai_draft_reply text,
+  add column ai_draft_reply_status text not null default 'none'
+    check (ai_draft_reply_status in ('none', 'pending', 'sent', 'dismissed'));
+
+create index tickets_ai_disabled_idx on public.tickets (ai_disabled) where ai_disabled;
+
+alter table public.ai_audit_log
+  add column trigger_event text,
+  add column analysis jsonb,
+  add column jira_modified boolean not null default false,
+  add column human_approval_required boolean not null default false,
+  add column human_decision text
+    check (human_decision is null or human_decision in ('approved', 'dismissed', 'marked_incorrect', 'completed')),
+  add column human_decision_by uuid references public.profiles (id) on delete set null,
+  add column human_decision_at timestamptz;
+
+create policy "audit log updatable by team members"
+  on public.ai_audit_log for update to authenticated
+  using (public.is_team_member()) with check (public.is_team_member());

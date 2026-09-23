@@ -14,14 +14,12 @@
 //                          used to recognise (and skip) the bot's own
 //                          Jira writes, so it never reacts to itself
 const { createClient } = require('@supabase/supabase-js')
-const { severityFromPriority, buildJiraUrl, extractTicketFields } = require('./lib/jira.js')
+const { severityFromPriority, buildJiraUrl, extractTicketFields, descriptionToText } = require('./lib/jira.js')
 const { matchCustomer } = require('./lib/customerMatch.js')
 const { computeSla } = require('./lib/sla.js')
 const { cleanEmail } = require('./lib/text.js')
-const { loadSettings } = require('./lib/settings.js')
-const { triageTicket } = require('./lib/aiTriage.js')
-const { confidenceBand, evaluateEscalation, normalizeSeverity, normalizeCategory } = require('./lib/safety.js')
-const jiraClient = require('./lib/jiraClient.js')
+const { isRelevantForAnalysis, describeChangelog } = require('./lib/relevance.js')
+const { runAiAnalysis } = require('./lib/copilot.js')
 
 const HANDLED_EVENTS = new Set(['jira:issue_created', 'jira:issue_updated', 'comment_created'])
 
@@ -105,7 +103,11 @@ exports.handler = async (event) => {
 
     const { data: existing } = await admin
       .from('tickets')
-      .select('id, client_id, match_status, created_at, first_response_at, severity, ai_confidence')
+      .select(`
+        id, client_id, match_status, created_at, first_response_at, severity, category, ai_confidence,
+        ai_disabled, severity_locked, category_locked, ai_last_analysis_at,
+        ai_summary, ai_likely_cause, ai_recommended_action, ai_confidence_label, ai_risk, ai_escalation_recommendation
+      `)
       .eq('jira_issue_key', fields.jiraIssueKey)
       .maybeSingle()
 
@@ -140,11 +142,14 @@ exports.handler = async (event) => {
       slaState = sla.slaState
     }
 
-    // Once the AI has classified this ticket (ai_confidence set), its
-    // severity judgement stands — a later issue_updated event (a status
-    // or assignment change, say) must not silently overwrite it back to
-    // the raw Jira-priority fallback used only before AI classification.
-    const severity = existing?.ai_confidence != null ? existing.severity : severityFromPriority(fields.priorityName)
+    // Once the AI has analysed this ticket (ai_confidence set) or a
+    // human has locked severity, that judgement stands — a later
+    // issue_updated event (a status or assignment change, say) must not
+    // silently overwrite it back to the raw Jira-priority fallback used
+    // only before the ticket has ever been analysed.
+    const severity = (existing?.ai_confidence != null || existing?.severity_locked)
+      ? existing.severity
+      : severityFromPriority(fields.priorityName)
 
     const row = {
       jira_issue_key: fields.jiraIssueKey,
@@ -173,11 +178,28 @@ exports.handler = async (event) => {
       .single()
     if (upsertError) throw upsertError
 
-    // AI triage runs once, on creation — not on every update — so cost
-    // is predictable and the bot never iterates endlessly on one ticket
-    // (see spec: escalate after the first attempt rather than retry).
-    if (webhookEvent === 'jira:issue_created') {
-      await runAiTriage(admin, { ticketRowId: upserted.id, fields, clientId })
+    // Continuous analysis: the copilot re-evaluates a ticket on every
+    // event that could plausibly change its own understanding — not
+    // just at creation — but isRelevantForAnalysis() filters out
+    // trivial metadata churn first, so a Jira "updated the Rank field"
+    // doesn't burn a Claude call, and material-change dedup inside
+    // runAiAnalysis stops it from spamming Jira even when it does run.
+    const commentAuthorEmail = webhookEvent === 'comment_created' ? cleanEmail(payload.comment?.author?.emailAddress) : null
+    const relevance = isRelevantForAnalysis({
+      webhookEvent, payload, existingTicket: existing, requesterEmail: fields.requesterEmail, commentAuthorEmail,
+    })
+    if (relevance.relevant) {
+      await runAiAnalysis(admin, {
+        ticketRowId: upserted.id,
+        fields,
+        clientId,
+        triggerEvent: relevance.trigger,
+        existingTicket: existing,
+        changelogLines: webhookEvent === 'jira:issue_updated' ? describeChangelog(payload) : [],
+        latestComment: webhookEvent === 'comment_created'
+          ? { authorName: payload.comment?.author?.displayName, text: descriptionToText(payload.comment?.body) }
+          : null,
+      })
     }
 
     await markEvent(admin, eventId, 'processed')
@@ -188,110 +210,6 @@ exports.handler = async (event) => {
     // there is no separate queue, Jira's retry IS the retry here.
     return { statusCode: 500, body: JSON.stringify({ error: 'Processing failed, will retry.' }) }
   }
-}
-
-// Runs the AI classification for one newly-created ticket and applies
-// its result. Never throws — a Claude or Jira-write failure here must
-// not stop the ticket from having synced (it already has, by this
-// point); it falls back to a human-escalation state instead.
-async function runAiTriage(admin, { ticketRowId, fields, clientId }) {
-  const settings = await loadSettings(admin)
-  if (!settings.ai_enabled) return
-
-  let client = null
-  let priorTickets = []
-  if (clientId) {
-    const [clientRes, priorRes] = await Promise.all([
-      admin.from('clients').select('business_name, tier, sla_addon, status').eq('id', clientId).maybeSingle(),
-      admin
-        .from('tickets')
-        .select('severity, summary, jira_issue_key, jira_status')
-        .eq('client_id', clientId)
-        .neq('jira_issue_key', fields.jiraIssueKey)
-        .order('created_at', { ascending: false })
-        .limit(5),
-    ])
-    client = clientRes.data
-    priorTickets = priorRes.data || []
-  }
-
-  const result = await triageTicket({ ticket: fields, client, priorTickets })
-
-  if (!result.ok) {
-    // Spec: if Claude is unavailable, process the ticket normally
-    // without AI and escalate for manual triage — never leave it
-    // silently unclassified in a queue nobody's watching.
-    console.error(`[jira-webhook] AI triage failed for ${fields.jiraIssueKey}: ${result.reason} — ${result.error || 'no further detail'}`)
-    await admin.from('tickets').update({ assigned_queue: settings.escalation_queue }).eq('id', ticketRowId)
-    await admin.from('ai_audit_log').insert({
-      ticket_id: ticketRowId,
-      decision: 'ai_unavailable',
-      action_taken: 'escalated_no_ai',
-      escalated: true,
-      escalation_reason: `AI unavailable (${result.reason})${result.error ? `: ${result.error.slice(0, 200)}` : ''}`,
-    })
-    return
-  }
-
-  const severity = normalizeSeverity(result.severity) || severityFromPriority(fields.priorityName) || 'P3'
-  const category = normalizeCategory(result.category)
-  const band = confidenceBand(result.confidence, settings.confidence_threshold)
-  const escalation = evaluateEscalation({
-    severity, category, confidenceBand: band, description: fields.description,
-    automationAttempts: 0, maxAttempts: settings.max_automation_attempts,
-    aiText: `${result.reasoning} ${result.customerResponse}`,
-  })
-  const queue = escalation.escalate ? settings.escalation_queue : (settings.routing_map[category] || settings.routing_map.Other)
-
-  await admin.from('tickets').update({
-    severity,
-    category,
-    ai_classification: { reasoning: result.reasoning, suggested_labels: result.suggestedLabels, escalated: escalation.escalate, escalation_reason: escalation.reason },
-    ai_confidence: result.confidence,
-    assigned_queue: queue,
-  }).eq('id', ticketRowId)
-
-  // Jira write-back is best-effort: a missing service-account token or
-  // a transient Jira error must not undo the classification we already
-  // stored, and must not stop the audit log from recording what happened.
-  let customerContacted = false
-  if (jiraClient.isConfigured()) {
-    try {
-      const labels = ['ai-triaged', ...result.suggestedLabels]
-      if (escalation.escalate) labels.push('needs-human-review')
-      await jiraClient.addLabels(fields.jiraIssueKey, labels)
-
-      if (escalation.escalate) {
-        await jiraClient.addInternalComment(
-          fields.jiraIssueKey,
-          `AI triage: ${severity} / ${category} (confidence ${result.confidence}%).\n${result.reasoning}\nEscalated to a human: ${escalation.reason}.`,
-        )
-      } else {
-        await jiraClient.addInternalComment(
-          fields.jiraIssueKey,
-          `AI triage: ${severity} / ${category} (confidence ${result.confidence}%).\n${result.reasoning}`,
-        )
-        if (settings.auto_responses_enabled && band === 'high' && result.customerResponse) {
-          await jiraClient.addCustomerComment(fields.jiraIssueKey, result.customerResponse)
-          customerContacted = true
-        }
-      }
-    } catch (err) {
-      console.error('[jira-webhook] Jira write-back failed:', err.message)
-    }
-  }
-
-  await admin.from('ai_audit_log').insert({
-    ticket_id: ticketRowId,
-    decision: 'classified',
-    severity,
-    category,
-    confidence: result.confidence,
-    action_taken: escalation.escalate ? 'escalated' : customerContacted ? 'auto_responded' : 'labeled_only',
-    customer_contacted: customerContacted,
-    escalated: escalation.escalate,
-    escalation_reason: escalation.reason,
-  })
 }
 
 async function markEvent(admin, eventId, status, error) {

@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../context/AuthContext.jsx'
 import { fetchClosedTickets } from '../lib/ticketsApi.js'
 import { fetchClients } from '../lib/clientsApi.js'
 import { fmtDate } from '../lib/pricing.js'
 import { SeverityBadge } from '../components/Badges.jsx'
+import TicketDrawer from '../components/TicketDrawer.jsx'
 
 export default function ClosedTickets() {
+  const { session, user } = useAuth()
   const [tickets, setTickets] = useState([])
   const [clientsById, setClientsById] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  const [openTicket, setOpenTicket] = useState(null)
 
-  useEffect(() => {
+  function reload() {
     Promise.all([fetchClosedTickets(), fetchClients()])
       .then(([t, c]) => {
         setTickets(t)
@@ -19,6 +23,10 @@ export default function ClosedTickets() {
       })
       .catch((err) => setError(err.message || 'Could not load closed tickets.'))
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    reload()
   }, [])
 
   const visible = useMemo(() => {
@@ -61,12 +69,11 @@ export default function ClosedTickets() {
       ) : (
         <div className="overflow-hidden rounded-md border border-stone">
           {visible.map((t) => (
-            <a
+            <button
               key={t.id}
-              href={t.jira_url || '#'}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex flex-wrap items-center gap-2.5 border-b border-stone bg-white px-4 py-3 last:border-b-0 hover:bg-paper-dim"
+              type="button"
+              onClick={() => setOpenTicket(t)}
+              className="flex w-full flex-wrap items-center gap-2.5 border-b border-stone bg-white px-4 py-3 text-left last:border-b-0 hover:bg-paper-dim"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -78,9 +85,19 @@ export default function ClosedTickets() {
                 </div>
               </div>
               <span className="whitespace-nowrap text-[11.5px] text-slate">Closed {fmtDate(t.resolved_at?.slice(0, 10))}</span>
-            </a>
+            </button>
           ))}
         </div>
+      )}
+
+      {openTicket && (
+        <TicketDrawer
+          ticket={openTicket}
+          session={session}
+          userId={user.id}
+          onClose={() => setOpenTicket(null)}
+          onChanged={reload}
+        />
       )}
     </div>
   )

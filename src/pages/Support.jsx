@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchOpenTickets, fetchRecentEscalations } from '../lib/ticketsApi.js'
+import { useAuth } from '../context/AuthContext.jsx'
+import { fetchOpenTickets, fetchRecentEscalations, fetchTicketById } from '../lib/ticketsApi.js'
 import { fetchClients } from '../lib/clientsApi.js'
 import { fmtDateTime } from '../lib/pricing.js'
-import { SeverityBadge, SlaStateBadge, MatchStatusBadge } from '../components/Badges.jsx'
+import { SeverityBadge, SlaStateBadge, MatchStatusBadge, ConfidenceBadge, EscalationBadge } from '../components/Badges.jsx'
+import TicketDrawer from '../components/TicketDrawer.jsx'
 
 export default function Support() {
+  const { session, user } = useAuth()
   const [tickets, setTickets] = useState([])
   const [clientsById, setClientsById] = useState({})
   const [escalations, setEscalations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [openTicket, setOpenTicket] = useState(null)
 
-  useEffect(() => {
+  function reload() {
     Promise.all([fetchOpenTickets(), fetchClients(), fetchRecentEscalations()])
       .then(([t, c, esc]) => {
         setTickets(t)
@@ -21,7 +25,20 @@ export default function Support() {
       })
       .catch((err) => setError(err.message || 'Could not load support data.'))
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    reload()
   }, [])
+
+  async function openTicketById(ticketId) {
+    try {
+      const t = await fetchTicketById(ticketId)
+      setOpenTicket(t)
+    } catch (err) {
+      setError(err.message || 'Could not open this ticket.')
+    }
+  }
 
   // fetchOpenTickets() already filters to resolved_at is null — completed
   // tickets are stowed away rather than showing up here at all.
@@ -97,12 +114,11 @@ export default function Support() {
           </div>
           <div className="bg-white">
             {escalations.map((e) => (
-              <a
+              <button
                 key={e.id}
-                href={e.tickets?.jira_url || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 border-t border-stone px-4 py-2.5 hover:bg-paper-dim"
+                type="button"
+                onClick={() => openTicketById(e.ticket_id)}
+                className="flex w-full items-center gap-3 border-t border-stone px-4 py-2.5 text-left hover:bg-paper-dim"
               >
                 <SeverityBadge severity={e.severity} />
                 <span className="min-w-0 flex-1">
@@ -110,7 +126,7 @@ export default function Support() {
                   <span className="block text-[11.5px] text-slate">{e.escalation_reason || e.decision}</span>
                 </span>
                 <span className="whitespace-nowrap text-[11px] text-slate">{fmtDateTime(e.created_at)}</span>
-              </a>
+              </button>
             ))}
           </div>
         </section>
@@ -127,18 +143,19 @@ export default function Support() {
       ) : (
         <div className="overflow-hidden rounded-md border border-stone">
           {recent.map((t) => (
-            <a
+            <button
               key={t.id}
-              href={t.jira_url || '#'}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex flex-wrap items-center gap-2.5 border-b border-stone bg-white px-4 py-3 last:border-b-0 hover:bg-paper-dim"
+              type="button"
+              onClick={() => setOpenTicket(t)}
+              className="flex w-full flex-wrap items-center gap-2.5 border-b border-stone bg-white px-4 py-3 text-left last:border-b-0 hover:bg-paper-dim"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[13.5px] font-semibold">{t.summary || t.jira_issue_key}</span>
                   <SeverityBadge severity={t.severity} />
                   <MatchStatusBadge status={t.match_status} />
+                  {t.ai_confidence_label && <ConfidenceBadge confidence={t.ai_confidence_label} />}
+                  <EscalationBadge escalation={t.ai_escalation_recommendation} />
                 </div>
                 <div className="text-[12px] text-slate">
                   {t.jira_issue_key} · {clientsById[t.client_id]?.business_name || 'Unmatched'} · {t.jira_status || 'Unknown status'}
@@ -146,9 +163,19 @@ export default function Support() {
               </div>
               <SlaStateBadge state={t.sla_state} />
               <span className="whitespace-nowrap text-[11.5px] text-slate">{fmtDateTime(t.last_synced_at)}</span>
-            </a>
+            </button>
           ))}
         </div>
+      )}
+
+      {openTicket && (
+        <TicketDrawer
+          ticket={openTicket}
+          session={session}
+          userId={user.id}
+          onClose={() => setOpenTicket(null)}
+          onChanged={reload}
+        />
       )}
     </div>
   )

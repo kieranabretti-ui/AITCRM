@@ -88,3 +88,49 @@ export function MatchStatusBadge({ status }) {
     </span>
   )
 }
+
+const CONFIDENCE_CLASSES = {
+  High: 'bg-status-active/10 text-status-active',
+  Medium: 'bg-status-onboarding/10 text-status-onboarding',
+  Low: 'bg-status-churned/10 text-status-churned',
+}
+
+export function ConfidenceBadge({ confidence }) {
+  if (!confidence) return null
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${CONFIDENCE_CLASSES[confidence] || ''}`}>
+      {confidence} confidence
+    </span>
+  )
+}
+
+const RISK_CLASSES = {
+  Low: 'bg-status-active/10 text-status-active',
+  Medium: 'bg-status-onboarding/10 text-status-onboarding',
+  High: 'bg-status-churned/10 text-status-churned',
+}
+
+export function RiskBadge({ risk }) {
+  if (!risk) return null
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${RISK_CLASSES[risk] || ''}`}>
+      {risk} risk
+    </span>
+  )
+}
+
+const ESCALATION_CLASSES = {
+  None: 'bg-paper-dim text-slate',
+  Technician: 'bg-status-lead/10 text-status-lead',
+  'Senior Technician': 'bg-status-onboarding/10 text-status-onboarding',
+  'Security Escalation': 'bg-status-churned/10 text-status-churned',
+}
+
+export function EscalationBadge({ escalation }) {
+  if (!escalation || escalation === 'None') return null
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ESCALATION_CLASSES[escalation] || ''}`}>
+      {escalation}
+    </span>
+  )
+}

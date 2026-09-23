@@ -1,11 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { fetchSettings, updateSetting } from '../lib/settingsApi.js'
-
-const CATEGORIES = [
-  'Security', 'Microsoft 365', 'Endpoint', 'Backup', 'Network',
-  'Account & Access', 'Hardware', 'Software', 'New User', 'User Change', 'Other',
-]
+import { CATEGORIES } from '../lib/categories.js'
 
 const DEFAULTS = {
   ai_enabled: true,

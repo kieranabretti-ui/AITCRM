@@ -9,7 +9,7 @@ import { TierBadge, StatusBadge, ReviewBadge, SlaPill } from '../components/Badg
 import ClientDrawer from '../components/ClientDrawer.jsx'
 
 export default function Dashboard() {
-  const { user } = useAuth()
+  const { user, session } = useAuth()
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
@@ -277,6 +277,7 @@ export default function Dashboard() {
           mode={drawer.mode}
           client={drawer.client}
           userId={user.id}
+          session={session}
           onClose={() => setDrawer(null)}
           onChanged={reload}
         />

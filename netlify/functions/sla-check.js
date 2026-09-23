@@ -5,6 +5,7 @@
 const { createClient } = require('@supabase/supabase-js')
 const { computeSla } = require('./lib/sla.js')
 const { loadSettings } = require('./lib/settings.js')
+const { runAiAnalysis } = require('./lib/copilot.js')
 const jiraClient = require('./lib/jiraClient.js')
 
 exports.handler = async () => {
@@ -22,7 +23,12 @@ exports.handler = async () => {
 
   const { data: openTickets, error } = await admin
     .from('tickets')
-    .select('id, jira_issue_key, sla_state, created_at, first_response_at, client_id')
+    .select(`
+      id, jira_issue_key, jira_issue_id, sla_state, created_at, first_response_at, client_id,
+      summary, description, jira_status, requester_email, requester_name, severity, category,
+      ai_disabled, severity_locked, category_locked, ai_last_analysis_at,
+      ai_summary, ai_likely_cause, ai_recommended_action, ai_confidence_label, ai_risk, ai_escalation_recommendation
+    `)
     .neq('sla_state', 'not_applicable')
     .is('resolved_at', null)
   if (error) {
@@ -64,6 +70,29 @@ exports.handler = async () => {
         console.error('[sla-check] Jira comment failed:', err.message)
       }
     }
+
+    // Newly at-risk/breached is exactly the kind of "has anything
+    // changed?" moment the copilot should re-evaluate for — SLA
+    // pressure alone can be reason enough to bump its own escalation
+    // recommendation, even with no new Jira activity to react to.
+    await runAiAnalysis(admin, {
+      ticketRowId: ticket.id,
+      fields: {
+        jiraIssueKey: ticket.jira_issue_key,
+        jiraIssueId: ticket.jira_issue_id,
+        summary: ticket.summary,
+        description: ticket.description,
+        jiraStatus: ticket.jira_status,
+        priorityName: '',
+        requesterEmail: ticket.requester_email,
+        requesterName: ticket.requester_name,
+        requesterAccountId: null,
+        resolved: false,
+      },
+      clientId: ticket.client_id,
+      triggerEvent: 'sla_risk',
+      existingTicket: ticket,
+    })
   }
 
   console.log(`[sla-check] checked ${checked} open SLA tickets, escalated ${escalated}`)

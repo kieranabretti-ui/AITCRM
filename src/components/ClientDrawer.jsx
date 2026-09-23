@@ -9,6 +9,7 @@ import {
   uploadContract, removeContract, contractUrl,
 } from '../lib/clientsApi.js'
 import { fetchTicketsForClient } from '../lib/ticketsApi.js'
+import TicketDrawer from './TicketDrawer.jsx'
 
 const emptyForm = {
   business_name: '', contact_name: '', contact_email: '', contact_phone: '',
@@ -18,7 +19,7 @@ const emptyForm = {
   lead_source: '', lead_source_detail: '', notes: '',
 }
 
-export default function ClientDrawer({ mode: initialMode, client, userId, onClose, onChanged }) {
+export default function ClientDrawer({ mode: initialMode, client, userId, session, onClose, onChanged }) {
   const [mode, setMode] = useState(initialMode === 'add' ? 'edit' : 'view')
   const [current, setCurrent] = useState(client)
   const [form, setForm] = useState(client ? { ...emptyForm, ...client } : emptyForm)
@@ -33,6 +34,12 @@ export default function ClientDrawer({ mode: initialMode, client, userId, onClos
   const fileInputRef = useRef(null)
   const [tickets, setTickets] = useState([])
   const [ticketsLoading, setTicketsLoading] = useState(false)
+  const [openTicket, setOpenTicket] = useState(null)
+
+  function reloadTickets() {
+    if (!current?.id) return
+    fetchTicketsForClient(current.id).then(setTickets).catch(() => {})
+  }
 
   const isNew = !current
 
@@ -200,6 +207,7 @@ export default function ClientDrawer({ mode: initialMode, client, userId, onClos
               onViewContract={handleViewContract}
               tickets={tickets}
               ticketsLoading={ticketsLoading}
+              onOpenTicket={setOpenTicket}
             />
           ) : (
             <EditForm form={form} setForm={setForm} />
@@ -227,6 +235,16 @@ export default function ClientDrawer({ mode: initialMode, client, userId, onClos
           )}
         </div>
       </aside>
+
+      {openTicket && (
+        <TicketDrawer
+          ticket={openTicket}
+          session={session}
+          userId={userId}
+          onClose={() => setOpenTicket(null)}
+          onChanged={reloadTickets}
+        />
+      )}
     </>
   )
 }
@@ -244,7 +262,7 @@ function ViewBody({
   c, confirmingDelete, setConfirmingDelete, onDelete, reviewOpen, setReviewOpen, reviewDate, setReviewDate,
   onMarkReviewed, activityDraft, setActivityDraft, onAddActivity, onRemoveActivity,
   uploading, uploadError, fileInputRef, onUpload, onRemoveContract, onViewContract,
-  tickets, ticketsLoading,
+  tickets, ticketsLoading, onOpenTicket,
 }) {
   const nextDue = computeNextReviewDate(c)
   const previewDue = computeNextReviewDate({ ...c, last_reviewed_date: reviewDate })
@@ -328,12 +346,11 @@ function ViewBody({
         ) : (
           <div className="flex flex-col gap-2">
             {tickets.slice(0, 6).map((t) => (
-              <a
+              <button
                 key={t.id}
-                href={t.jira_url || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2.5 rounded-[6px] border border-stone bg-white p-2.5 hover:border-petrol"
+                type="button"
+                onClick={() => onOpenTicket(t)}
+                className="flex items-center gap-2.5 rounded-[6px] border border-stone bg-white p-2.5 text-left hover:border-petrol"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-semibold">{t.summary || t.jira_issue_key}</div>
@@ -345,7 +362,7 @@ function ViewBody({
                   <SeverityBadge severity={t.severity} />
                   <SlaStateBadge state={t.sla_state} />
                 </div>
-              </a>
+              </button>
             ))}
           </div>
         )}

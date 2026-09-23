@@ -25,9 +25,11 @@ sign-up — accounts only exist via an owner's invite.
 - A Netlify Function receiving Jira Service Management webhooks to sync
   support tickets in (Jira stays the source of truth for ticket status
   and conversation — see [Support desk setup](#support-desk-jira-integration-setup))
-- The [Claude API](https://console.anthropic.com) for AI triage (severity,
-  category, routing, low-risk auto-replies) — server-side only, with a
-  human-escalation fallback whenever it's disabled or unavailable
+- The [Claude API](https://console.anthropic.com) powering an AI service-desk
+  copilot that re-analyses each ticket throughout its lifecycle (not just
+  once on creation) — severity, category, routing, technical diagnosis,
+  and low-risk auto-replies — server-side only, with a human-escalation
+  fallback whenever it's disabled or unavailable
 
 ## One-time setup
 
@@ -221,6 +223,70 @@ directly in the Supabase table editor.
 Anything that doesn't match automatically shows up under **Support →
 Review unmatched** — link it to the right client once, and every future
 ticket from that same email matches on its own from then on.
+
+### 6. AI copilot (Phase 3) — continuous ticket analysis
+
+Extends Phase 2's one-shot triage into an AI technical copilot that
+stays with a ticket for its whole lifecycle, the way a second Level 2
+technician looking over a colleague's shoulder would. No new
+environment variables — it reuses everything from Phase 2
+(`ANTHROPIC_API_KEY`, `JIRA_SERVICE_EMAIL`, `JIRA_API_TOKEN`). Just run
+the migration:
+
+**Apply the Phase 3 migration** — SQL Editor, run
+[`supabase/migrations/004_ai_copilot.sql`](./supabase/migrations/004_ai_copilot.sql)
+in full.
+
+**What changed:**
+
+- **It re-analyses, not just classifies.** Where Phase 2 only ran once
+  on ticket creation, the copilot now re-evaluates a ticket whenever
+  something meaningful happens: a customer reply, a technician comment,
+  a status/priority/assignee change, or it newly crosses into SLA risk.
+  A relevance check (`lib/relevance.js`) filters out trivial metadata
+  churn first, and a material-change check inside `lib/copilot.js` stops
+  it posting a new Jira comment when it would just be repeating itself —
+  it still logs every pass to the audit log, it just doesn't spam Jira.
+- **Its internal comments are structured technical analysis** — current
+  understanding, likely cause, other possibilities, recommended next
+  steps, evidence (explicitly marked known/suspected/not-yet-checked),
+  confidence, risk, and an escalation recommendation (None / Technician
+  / Senior Technician / Security Escalation) — always posted as an
+  **internal** (staff-only) Jira comment, never customer-visible.
+- **It responds to what a technician does**, not just to the customer.
+  If a technician comments "I'm going to reset the user's password", the
+  next analysis can flag a relevant check to do first; if they say
+  they've already tried something, it suggests the logical next
+  diagnostic step.
+- **It draws on the domain checklists in its own system prompt**
+  (`lib/aiTechnician.js`) — Outlook/M365/endpoint/backup/security — to
+  recommend specific checks a technician can actually run, not generic
+  advice. It has no access to Microsoft Graph, ESET, RMM, backup APIs,
+  or any other live telemetry yet; `lib/copilot.js` is built so those
+  can be added later as more context fed into the same analysis, without
+  changing its output shape.
+- **Suggested customer replies need approval by default.** A reply only
+  auto-sends when it's high confidence, non-escalated, and the AI itself
+  flags it as a purely safe acknowledgement/info-request. Anything else
+  sits on the ticket as `ai_draft_reply` (status `pending`) until a
+  technician clicks **Approve & send** in the ticket drawer — which
+  posts it via the new `approve-draft-reply` function — or dismisses it.
+- **Humans can override it, per ticket.** From the ticket drawer (open
+  any ticket row from Support, Closed tickets, or a client's Support
+  section): disable AI analysis for just that ticket, override its
+  severity/category (locks it so the AI stops silently reclassifying
+  it), request an immediate fresh analysis, and dismiss / mark
+  incorrect / mark completed on any past recommendation. All of it is
+  recorded in the audit log via the same `ai_audit_log` table Phase 2
+  added, now also carrying the trigger event, the full structured
+  analysis, and the human decision where there is one.
+
+Nothing here changes the safety boundary from Phase 2: the bot still has
+no code path to any destructive or high-risk action (account changes,
+MFA, backups, security policy, DNS, firewall, and so on) — it can only
+add a Jira comment, apply a label, or write to the columns above.
+Anything of that kind is always a recommendation for a human, never
+something it does itself.
 
 ## Local development
 

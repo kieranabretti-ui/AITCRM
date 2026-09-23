@@ -2,10 +2,14 @@
 // only. Authenticates as the dedicated service account (JIRA_SERVICE_EMAIL
 // + JIRA_API_TOKEN), never a human's credentials.
 //
-// Deliberately small: only what the AI triage flow needs (a comment, a
-// label). No transitions, no field edits beyond labels — anything that
-// could touch a Jira workflow or a field this bot doesn't own stays a
-// human action, per the "never autonomously..." safety list.
+// Deliberately small: only what the AI copilot flow needs (read the
+// comment thread, write a comment, apply labels). No transitions, no
+// field edits beyond labels — anything that could touch a Jira
+// workflow or a field this bot doesn't own stays a human action, per
+// the "never autonomously..." safety list.
+const { cleanEmail } = require('./text.js')
+const { descriptionToText } = require('./jira.js')
+
 function jiraAuthHeader() {
   const { JIRA_SERVICE_EMAIL, JIRA_API_TOKEN } = process.env
   if (!JIRA_SERVICE_EMAIL || !JIRA_API_TOKEN) return null
@@ -78,4 +82,24 @@ async function addLabels(issueKey, labels) {
   })
 }
 
-module.exports = { isConfigured, addInternalComment, addCustomerComment, addLabels }
+// Full comment thread, oldest first — this is how the copilot "reads
+// all customer replies, technician replies" across the ticket's whole
+// lifecycle rather than just reacting to the one comment in a webhook
+// payload. Read-only; capped at 50, which is generous for a support
+// ticket and keeps the AI's context bounded.
+async function getComments(issueKey) {
+  const data = await jiraFetch(
+    `/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment?orderBy=created&maxResults=50`,
+    { method: 'GET' },
+  )
+  return (data?.comments || []).map((c) => ({
+    id: c.id,
+    authorEmail: cleanEmail(c.author?.emailAddress),
+    authorName: c.author?.displayName || '',
+    text: descriptionToText(c.body),
+    created: c.created,
+    internal: c.properties?.find((p) => p.key === 'sd.public.comment')?.value?.internal ?? null,
+  }))
+}
+
+module.exports = { isConfigured, addInternalComment, addCustomerComment, addLabels, getComments }
