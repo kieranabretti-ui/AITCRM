@@ -18,6 +18,10 @@ const { severityFromPriority, buildJiraUrl, extractTicketFields } = require('./l
 const { matchCustomer } = require('./lib/customerMatch.js')
 const { computeSla } = require('./lib/sla.js')
 const { cleanEmail } = require('./lib/text.js')
+const { loadSettings } = require('./lib/settings.js')
+const { triageTicket } = require('./lib/aiTriage.js')
+const { confidenceBand, evaluateEscalation, normalizeSeverity, normalizeCategory } = require('./lib/safety.js')
+const jiraClient = require('./lib/jiraClient.js')
 
 const HANDLED_EVENTS = new Set(['jira:issue_created', 'jira:issue_updated', 'comment_created'])
 
@@ -101,7 +105,7 @@ exports.handler = async (event) => {
 
     const { data: existing } = await admin
       .from('tickets')
-      .select('id, client_id, match_status, created_at')
+      .select('id, client_id, match_status, created_at, first_response_at, severity, ai_confidence')
       .eq('jira_issue_key', fields.jiraIssueKey)
       .maybeSingle()
 
@@ -114,15 +118,33 @@ exports.handler = async (event) => {
       matchStatus = match.matchStatus
     }
 
+    // "Time to first human response" (spec) — a comment on this ticket
+    // from anyone other than the requester (and, per the loop guard
+    // above, not our own bot) is a staff reply. Record only the first
+    // one; later replies don't move it.
+    let firstResponseAt = existing?.first_response_at || null
+    if (!firstResponseAt && webhookEvent === 'comment_created') {
+      const commentAuthorEmail = cleanEmail(payload.comment?.author?.emailAddress)
+      if (commentAuthorEmail && commentAuthorEmail !== fields.requesterEmail) {
+        firstResponseAt = new Date().toISOString()
+      }
+    }
+
     let slaDueAt = null
     let slaState = 'not_applicable'
     if (clientId) {
       const { data: client } = await admin.from('clients').select('sla_addon').eq('id', clientId).maybeSingle()
       const createdAt = existing?.created_at || new Date().toISOString()
-      const sla = computeSla({ hasSlaAddon: Boolean(client?.sla_addon), createdAt, firstResponseAt: null })
+      const sla = computeSla({ hasSlaAddon: Boolean(client?.sla_addon), createdAt, firstResponseAt })
       slaDueAt = sla.slaDueAt
       slaState = sla.slaState
     }
+
+    // Once the AI has classified this ticket (ai_confidence set), its
+    // severity judgement stands — a later issue_updated event (a status
+    // or assignment change, say) must not silently overwrite it back to
+    // the raw Jira-priority fallback used only before AI classification.
+    const severity = existing?.ai_confidence != null ? existing.severity : severityFromPriority(fields.priorityName)
 
     const row = {
       jira_issue_key: fields.jiraIssueKey,
@@ -134,7 +156,8 @@ exports.handler = async (event) => {
       summary: fields.summary,
       description: fields.description,
       jira_status: fields.jiraStatus,
-      severity: severityFromPriority(fields.priorityName),
+      severity,
+      first_response_at: firstResponseAt,
       sla_due_at: slaDueAt,
       sla_state: slaState,
       resolved_at: fields.resolved ? new Date().toISOString() : null,
@@ -143,8 +166,19 @@ exports.handler = async (event) => {
       updated_at: new Date().toISOString(),
     }
 
-    const { error: upsertError } = await admin.from('tickets').upsert(row, { onConflict: 'jira_issue_key' })
+    const { data: upserted, error: upsertError } = await admin
+      .from('tickets')
+      .upsert(row, { onConflict: 'jira_issue_key' })
+      .select('id')
+      .single()
     if (upsertError) throw upsertError
+
+    // AI triage runs once, on creation — not on every update — so cost
+    // is predictable and the bot never iterates endlessly on one ticket
+    // (see spec: escalate after the first attempt rather than retry).
+    if (webhookEvent === 'jira:issue_created') {
+      await runAiTriage(admin, { ticketRowId: upserted.id, fields, clientId })
+    }
 
     await markEvent(admin, eventId, 'processed')
     return { statusCode: 200, body: JSON.stringify({ ok: true, matchStatus }) }
@@ -154,6 +188,109 @@ exports.handler = async (event) => {
     // there is no separate queue, Jira's retry IS the retry here.
     return { statusCode: 500, body: JSON.stringify({ error: 'Processing failed, will retry.' }) }
   }
+}
+
+// Runs the AI classification for one newly-created ticket and applies
+// its result. Never throws — a Claude or Jira-write failure here must
+// not stop the ticket from having synced (it already has, by this
+// point); it falls back to a human-escalation state instead.
+async function runAiTriage(admin, { ticketRowId, fields, clientId }) {
+  const settings = await loadSettings(admin)
+  if (!settings.ai_enabled) return
+
+  let client = null
+  let priorTickets = []
+  if (clientId) {
+    const [clientRes, priorRes] = await Promise.all([
+      admin.from('clients').select('business_name, tier, sla_addon, status').eq('id', clientId).maybeSingle(),
+      admin
+        .from('tickets')
+        .select('severity, summary, jira_issue_key, jira_status')
+        .eq('client_id', clientId)
+        .neq('jira_issue_key', fields.jiraIssueKey)
+        .order('created_at', { ascending: false })
+        .limit(5),
+    ])
+    client = clientRes.data
+    priorTickets = priorRes.data || []
+  }
+
+  const result = await triageTicket({ ticket: fields, client, priorTickets })
+
+  if (!result.ok) {
+    // Spec: if Claude is unavailable, process the ticket normally
+    // without AI and escalate for manual triage — never leave it
+    // silently unclassified in a queue nobody's watching.
+    await admin.from('tickets').update({ assigned_queue: settings.escalation_queue }).eq('id', ticketRowId)
+    await admin.from('ai_audit_log').insert({
+      ticket_id: ticketRowId,
+      decision: 'ai_unavailable',
+      action_taken: 'escalated_no_ai',
+      escalated: true,
+      escalation_reason: `AI unavailable (${result.reason})`,
+    })
+    return
+  }
+
+  const severity = normalizeSeverity(result.severity) || severityFromPriority(fields.priorityName) || 'P3'
+  const category = normalizeCategory(result.category)
+  const band = confidenceBand(result.confidence, settings.confidence_threshold)
+  const escalation = evaluateEscalation({
+    severity, category, confidenceBand: band, description: fields.description,
+    automationAttempts: 0, maxAttempts: settings.max_automation_attempts,
+    aiText: `${result.reasoning} ${result.customerResponse}`,
+  })
+  const queue = escalation.escalate ? settings.escalation_queue : (settings.routing_map[category] || settings.routing_map.Other)
+
+  await admin.from('tickets').update({
+    severity,
+    category,
+    ai_classification: { reasoning: result.reasoning, suggested_labels: result.suggestedLabels, escalated: escalation.escalate, escalation_reason: escalation.reason },
+    ai_confidence: result.confidence,
+    assigned_queue: queue,
+  }).eq('id', ticketRowId)
+
+  // Jira write-back is best-effort: a missing service-account token or
+  // a transient Jira error must not undo the classification we already
+  // stored, and must not stop the audit log from recording what happened.
+  let customerContacted = false
+  if (jiraClient.isConfigured()) {
+    try {
+      const labels = ['ai-triaged', ...result.suggestedLabels]
+      if (escalation.escalate) labels.push('needs-human-review')
+      await jiraClient.addLabels(fields.jiraIssueKey, labels)
+
+      if (escalation.escalate) {
+        await jiraClient.addInternalComment(
+          fields.jiraIssueKey,
+          `AI triage: ${severity} / ${category} (confidence ${result.confidence}%).\n${result.reasoning}\nEscalated to a human: ${escalation.reason}.`,
+        )
+      } else {
+        await jiraClient.addInternalComment(
+          fields.jiraIssueKey,
+          `AI triage: ${severity} / ${category} (confidence ${result.confidence}%).\n${result.reasoning}`,
+        )
+        if (settings.auto_responses_enabled && band === 'high' && result.customerResponse) {
+          await jiraClient.addCustomerComment(fields.jiraIssueKey, result.customerResponse)
+          customerContacted = true
+        }
+      }
+    } catch (err) {
+      console.error('[jira-webhook] Jira write-back failed:', err.message)
+    }
+  }
+
+  await admin.from('ai_audit_log').insert({
+    ticket_id: ticketRowId,
+    decision: 'classified',
+    severity,
+    category,
+    confidence: result.confidence,
+    action_taken: escalation.escalate ? 'escalated' : customerContacted ? 'auto_responded' : 'labeled_only',
+    customer_contacted: customerContacted,
+    escalated: escalation.escalate,
+    escalation_reason: escalation.reason,
+  })
 }
 
 async function markEvent(admin, eventId, status, error) {

@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import Support from './pages/Support.jsx'
 import UnmatchedTickets from './pages/UnmatchedTickets.jsx'
 import Team from './pages/Team.jsx'
+import AdminSettings from './pages/AdminSettings.jsx'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/tickets/unmatched" element={<UnmatchedTickets />} />
           <Route element={<ProtectedRoute ownerOnly />}>
             <Route path="/team" element={<Team />} />
+            <Route path="/admin/settings" element={<AdminSettings />} />
           </Route>
         </Route>
       </Route>

@@ -34,6 +34,17 @@ export async function fetchOpenTickets() {
   return data
 }
 
+export async function fetchRecentEscalations() {
+  const { data, error } = await supabase
+    .from('ai_audit_log')
+    .select('id, ticket_id, decision, severity, category, confidence, action_taken, escalation_reason, created_at, tickets(summary, jira_issue_key, jira_url, client_id)')
+    .eq('escalated', true)
+    .order('created_at', { ascending: false })
+    .limit(10)
+  if (error) throw error
+  return data
+}
+
 // Manual "link this Jira ticket to a client" action — a normal
 // RLS-protected write any team member can do (no service-role
 // escalation needed, unlike jira-webhook.js which has no user

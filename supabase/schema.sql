@@ -327,3 +327,73 @@ alter table public.webhook_events enable row level security;
 create policy "webhook events readable by team members"
   on public.webhook_events for select to authenticated
   using (public.is_team_member());
+
+-- ---------------------------------------------------------------
+-- AI triage (Phase 2) — see supabase/migrations/003_ai_triage.sql for
+-- the standalone version used to upgrade an already-live database.
+-- ---------------------------------------------------------------
+
+-- settings — small key/value store for admin-configurable behaviour.
+create table public.settings (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references auth.users (id)
+);
+
+alter table public.settings enable row level security;
+
+create policy "settings readable by team members"
+  on public.settings for select to authenticated
+  using (public.is_team_member());
+
+create policy "settings writable by owners"
+  on public.settings for all to authenticated
+  using (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'owner'))
+  with check (exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'owner'));
+
+insert into public.settings (key, value) values
+  ('ai_enabled', 'true'),
+  ('confidence_threshold', '{"high": 85, "medium": 50}'),
+  ('sla_warning_minutes', '30'),
+  ('max_automation_attempts', '2'),
+  ('auto_responses_enabled', 'true'),
+  ('escalation_queue', '"Escalation"'),
+  ('routing_map', '{
+    "Security": "Security",
+    "Account & Access": "Security",
+    "Microsoft 365": "Microsoft 365",
+    "Backup": "Backup/Infrastructure",
+    "Network": "Support",
+    "Endpoint": "Support",
+    "Hardware": "Support",
+    "Software": "Support",
+    "New User": "Support",
+    "User Change": "Support",
+    "Other": "Support"
+  }')
+on conflict (key) do nothing;
+
+-- ai_audit_log — every AI decision, for review and debugging.
+create table public.ai_audit_log (
+  id uuid primary key default gen_random_uuid(),
+  ticket_id uuid references public.tickets (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  decision text not null,
+  severity text,
+  category text,
+  confidence numeric,
+  action_taken text not null,
+  customer_contacted boolean not null default false,
+  escalated boolean not null default false,
+  escalation_reason text
+);
+
+create index ai_audit_log_ticket_id_idx on public.ai_audit_log (ticket_id);
+create index ai_audit_log_created_at_idx on public.ai_audit_log (created_at desc);
+
+alter table public.ai_audit_log enable row level security;
+
+create policy "audit log readable by team members"
+  on public.ai_audit_log for select to authenticated
+  using (public.is_team_member());

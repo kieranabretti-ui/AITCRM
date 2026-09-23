@@ -38,6 +38,14 @@ export default function AppShell() {
                 Team
               </NavLink>
             )}
+            {isOwner && (
+              <NavLink
+                to="/admin/settings"
+                className={({ isActive }) => (isActive ? 'font-semibold text-petrol' : 'text-ink/70 hover:text-ink')}
+              >
+                Bot settings
+              </NavLink>
+            )}
             <span className="hidden text-ink/50 sm:inline">{profile?.email}</span>
             <button type="button" onClick={signOut} className="btn btn-ghost px-3 py-1.5 text-[12.5px]">
               Sign out

@@ -1,24 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchOpenTickets } from '../lib/ticketsApi.js'
+import { fetchOpenTickets, fetchRecentEscalations } from '../lib/ticketsApi.js'
 import { fetchClients } from '../lib/clientsApi.js'
 import { fmtDateTime } from '../lib/pricing.js'
 import { SeverityBadge, SlaStateBadge, MatchStatusBadge } from '../components/Badges.jsx'
 
-// Phase 1: what's knowable from Jira sync alone (open/unassigned/unmatched
-// counts, a recent-activity list). P1/P2 counts, SLA-at-risk totals and AI
-// escalations land in Phase 2 once classification exists.
 export default function Support() {
   const [tickets, setTickets] = useState([])
   const [clientsById, setClientsById] = useState({})
+  const [escalations, setEscalations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    Promise.all([fetchOpenTickets(), fetchClients()])
-      .then(([t, c]) => {
+    Promise.all([fetchOpenTickets(), fetchClients(), fetchRecentEscalations()])
+      .then(([t, c, esc]) => {
         setTickets(t)
         setClientsById(Object.fromEntries(c.map((cl) => [cl.id, cl])))
+        setEscalations(esc)
       })
       .catch((err) => setError(err.message || 'Could not load support data.'))
       .finally(() => setLoading(false))
@@ -27,6 +26,9 @@ export default function Support() {
   const open = useMemo(() => tickets.filter((t) => !t.resolved_at), [tickets])
   const unassigned = useMemo(() => open.filter((t) => !t.assigned_staff_id), [open])
   const unmatched = useMemo(() => tickets.filter((t) => t.match_status !== 'matched'), [tickets])
+  const p1Count = useMemo(() => open.filter((t) => t.severity === 'P1').length, [open])
+  const p2Count = useMemo(() => open.filter((t) => t.severity === 'P2').length, [open])
+  const slaAtRisk = useMemo(() => open.filter((t) => t.sla_state === 'at_risk' || t.sla_state === 'breached').length, [open])
   const recent = useMemo(() => tickets.slice(0, 12), [tickets])
 
   if (loading) return <div className="py-24 text-center text-slate">Loading support activity…</div>
@@ -48,10 +50,23 @@ export default function Support() {
         </p>
       )}
 
-      <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3">
+      <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <div className="card p-4">
           <div className="eyebrow">Open tickets</div>
           <div className="mt-1.5 font-display text-2xl font-bold tabular-nums">{open.length}</div>
+        </div>
+        <div className="card p-4">
+          <div className={`eyebrow ${p1Count ? 'text-status-churned' : ''}`}>P1 open</div>
+          <div className={`mt-1.5 font-display text-2xl font-bold tabular-nums ${p1Count ? 'text-status-churned' : ''}`}>{p1Count}</div>
+        </div>
+        <div className="card p-4">
+          <div className="eyebrow">P2 open</div>
+          <div className="mt-1.5 font-display text-2xl font-bold tabular-nums">{p2Count}</div>
+        </div>
+        <div className="card p-4">
+          <div className={`eyebrow ${slaAtRisk ? 'text-status-onboarding' : ''}`}>SLA at risk</div>
+          <div className={`mt-1.5 font-display text-2xl font-bold tabular-nums ${slaAtRisk ? 'text-status-onboarding' : ''}`}>{slaAtRisk}</div>
+          <div className="mt-0.5 text-[12px] text-slate">at risk or breached</div>
         </div>
         <div className="card p-4">
           <div className="eyebrow">Unassigned</div>
@@ -66,6 +81,33 @@ export default function Support() {
           <div className="mt-0.5 text-[12px] text-slate">awaiting manual link</div>
         </Link>
       </section>
+
+      {escalations.length > 0 && (
+        <section className="mb-6 overflow-hidden rounded-md border border-status-onboarding">
+          <div className="flex items-center justify-between bg-status-onboarding/10 px-4 py-2.5">
+            <h2 className="text-[13px] font-bold text-status-onboarding">Recent AI escalations</h2>
+            <span className="rounded-full bg-white px-2 font-mono text-[11px]">{escalations.length}</span>
+          </div>
+          <div className="bg-white">
+            {escalations.map((e) => (
+              <a
+                key={e.id}
+                href={e.tickets?.jira_url || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 border-t border-stone px-4 py-2.5 hover:bg-paper-dim"
+              >
+                <SeverityBadge severity={e.severity} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-semibold">{e.tickets?.summary || e.tickets?.jira_issue_key || 'Ticket'}</span>
+                  <span className="block text-[11.5px] text-slate">{e.escalation_reason || e.decision}</span>
+                </span>
+                <span className="whitespace-nowrap text-[11px] text-slate">{fmtDateTime(e.created_at)}</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       <h2 className="eyebrow mb-3">Recent activity</h2>
       {recent.length === 0 ? (

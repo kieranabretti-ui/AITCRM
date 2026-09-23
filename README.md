@@ -25,6 +25,9 @@ sign-up — accounts only exist via an owner's invite.
 - A Netlify Function receiving Jira Service Management webhooks to sync
   support tickets in (Jira stays the source of truth for ticket status
   and conversation — see [Support desk setup](#support-desk-jira-integration-setup))
+- The [Claude API](https://console.anthropic.com) for AI triage (severity,
+  category, routing, low-risk auto-replies) — server-side only, with a
+  human-escalation fallback whenever it's disabled or unavailable
 
 ## One-time setup
 
@@ -88,11 +91,11 @@ domain, its own env vars, its own security headers.
 
 ## Support desk (Jira integration) setup
 
-This is Phase 1 of the support-desk work: Jira tickets sync into a
-`tickets` table, get matched to a client automatically where possible,
-and show up on the client record and the new **Support** page. There's
-no AI yet — classification, routing and automated responses are a later
-phase, once you have a server-side Anthropic API key.
+Jira tickets sync into a `tickets` table, get matched to a client
+automatically where possible, and show up on the client record and the
+**Support** page (Phase 1) — plus AI triage (severity, category,
+routing, low-risk auto-replies, SLA escalation) once you've done the
+Phase 2 steps below.
 
 ### 1. Apply the database migration
 
@@ -148,7 +151,63 @@ fields are required for Phase 1 (severity is read straight from Jira's
 own Priority field; category and AI confidence are Phase 2 additions
 once classification exists).
 
-### 4. Backfill domains for better matching (optional)
+### 4. Phase 2 — turn on AI triage
+
+Everything below is additive on top of Phase 1 — the ticket sync above
+keeps working even if you skip this section entirely, or if Claude or
+Jira is temporarily down (the bot just escalates for manual triage
+instead of classifying).
+
+**Apply the Phase 2 migration** — SQL Editor, run
+[`supabase/migrations/003_ai_triage.sql`](./supabase/migrations/003_ai_triage.sql)
+in full. Adds `settings` (admin-configurable knobs, with sane defaults
+already seeded) and `ai_audit_log` (every AI decision, for review).
+
+**Create a dedicated Jira service account** — don't reuse a human's
+login. In Jira: invite a new user (e.g. `ai-bot@a-it.uk`) with access
+to your JSM project, but no admin rights. Sign in as that account once,
+then generate an API token for it: **Atlassian account settings →
+Security → Create and manage API tokens → Create API token**.
+
+**Get an Anthropic API key** — [console.anthropic.com](https://console.anthropic.com) →
+Settings → API keys → Create key. This is separate from any Claude.ai
+or Claude Code login; it's billed per use.
+
+**Add the new environment variables** in Netlify, then redeploy:
+
+| Key | Value | Notes |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | your Anthropic API key | server-side only, powers ticket classification |
+| `JIRA_SERVICE_EMAIL` | the dedicated bot account's email | now required — also used for the loop-guard so the bot never reacts to its own writes |
+| `JIRA_API_TOKEN` | the API token you generated for that account | lets the bot post comments and apply labels in Jira |
+
+**Review the defaults** on the new **Bot settings** page (owner-only,
+in the nav) — confidence thresholds, SLA warning window, routing per
+category, and the escalation queue name. Sensible defaults are already
+in place; tune them here rather than in the database. The **AI support
+bot** switch at the top turns off all automated behaviour instantly
+without touching Jira or the rest of the CRM.
+
+**How it behaves**: on a new ticket, the bot classifies severity and
+category, applies Jira labels, and — only at high confidence, for a
+non-escalated ticket, with auto-replies enabled — posts a low-risk
+acknowledgement as a **public** Jira comment. Every other AI note it
+leaves is an **internal** comment (staff-only, never customer-visible).
+P1 tickets, anything in the Security or Account & Access categories,
+low-confidence classifications, and anything mentioning legal/
+regulatory concerns always escalate to the queue above rather than
+being handled automatically. A scheduled function (`sla-check`, every
+15 minutes — needs a Netlify plan with Scheduled Functions) catches SLA
+deadlines that would otherwise pass with no new Jira activity to
+trigger a webhook.
+
+The bot never takes destructive or high-risk actions itself (disabling
+accounts, resetting MFA, changing security policy, deleting data, and
+so on) — it has no code path to do any of that; the Jira client this
+app uses only supports adding a comment or a label. Anything of that
+kind is always a recommendation to a human, never an automated action.
+
+### 5. Backfill domains for better matching (optional)
 
 Ticket matching checks, in order: the requester's email against a
 client's contact email, then their email domain against

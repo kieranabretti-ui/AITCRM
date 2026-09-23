@@ -3,6 +3,12 @@
   publish = "dist"
   functions = "netlify/functions"
 
+# Recomputes SLA state and escalates tickets approaching/past their
+# response deadline — Jira webhooks are event-driven, so nothing else
+# fires when a deadline simply elapses with no new Jira activity.
+[functions."sla-check"]
+  schedule = "*/15 * * * *"
+
 # React Router uses clean client-side URLs — without this, a direct
 # visit or refresh on those paths 404s.
 [[redirects]]
