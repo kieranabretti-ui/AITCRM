@@ -1,8 +1,16 @@
 # A-IT Client Manager
 
 Internal CRM for tracking A-IT's managed clients — packages, SLAs, review
-cadence, activity log, and signed contracts. Separate app from the public
+cadence, activity log, signed contracts, and now a synced view of Jira
+Service Management support tickets. Separate app from the public
 marketing site, with its own login (invite-only) and its own deploy.
+
+**Support desk integration**: Jira remains the source of truth for
+ticket status and conversation history. This CRM keeps a synced summary
+(via a Jira webhook) so support activity shows up on the right customer
+record, plus a queue for the tickets Jira sends that couldn't be matched
+to a client automatically. See [Support desk setup](#support-desk-jira-integration-setup)
+below — this is a separate, later setup step from the base CRM below.
 
 The first person to sign in becomes the **owner** (superuser) and can
 invite employees as **staff** from the Team page. There is no public
@@ -14,6 +22,9 @@ sign-up — accounts only exist via an owner's invite.
 - [Supabase](https://supabase.com) for the database, auth, and file storage
 - Netlify Functions for the two privileged actions (invite / remove a
   team member) that need a service-role key, which never reaches the browser
+- A Netlify Function receiving Jira Service Management webhooks to sync
+  support tickets in (Jira stays the source of truth for ticket status
+  and conversation — see [Support desk setup](#support-desk-jira-integration-setup))
 
 ## One-time setup
 
@@ -74,6 +85,83 @@ domain, its own env vars, its own security headers.
    you `owner` automatically.
 3. From then on, invite employees yourself from the **Team** page in the
    app — they'll get an email with a link to set their own password.
+
+## Support desk (Jira integration) setup
+
+This is Phase 1 of the support-desk work: Jira tickets sync into a
+`tickets` table, get matched to a client automatically where possible,
+and show up on the client record and the new **Support** page. There's
+no AI yet — classification, routing and automated responses are a later
+phase, once you have a server-side Anthropic API key.
+
+### 1. Apply the database migration
+
+Your Supabase project already has the base schema from setup above. Add
+the support-desk tables on top of it: open the **SQL Editor** and run
+[`supabase/migrations/002_support_desk.sql`](./supabase/migrations/002_support_desk.sql)
+in full. It only adds new tables (`tickets`, `client_email_domains`,
+`jira_customer_mappings`, `webhook_events`) — nothing existing is
+touched. (A brand-new install can skip this: `schema.sql` already
+includes it.)
+
+### 2. Add the new environment variables
+
+In Netlify → **Site configuration → Environment variables**, alongside
+the ones from setup above:
+
+| Key | Value | Notes |
+|---|---|---|
+| `JIRA_BASE_URL` | e.g. `https://your-org.atlassian.net` | used to build "Open in Jira" links |
+| `JIRA_WEBHOOK_SECRET` | any long random string you generate | shared secret Jira sends back on every webhook call — required before deploying |
+| `JIRA_SERVICE_EMAIL` | *(optional for now)* the dedicated bot account's email, once you create one | stops the bot reacting to its own Jira writes — not needed until Phase 2, when the bot starts writing to Jira |
+
+Redeploy (or trigger a new deploy) after adding these so the function picks them up.
+
+### 3. Point Jira at the webhook
+
+The webhook URL is:
+
+```
+https://crm.a-it.uk/.netlify/functions/jira-webhook?secret=<JIRA_WEBHOOK_SECRET>
+```
+
+Two ways to wire this up, depending on what access you have in Jira:
+
+**Option A — Jira Automation (needs only project admin, recommended to start):**
+1. In your JSM project → **Project settings → Automation → Create rule**.
+2. Create one rule per trigger you want: **Issue created**, **Issue
+   updated**, **Comment added** (three separate rules, or one rule with
+   multiple triggers if your plan supports it).
+3. Add a **Send web request** action: URL as above, method `POST`,
+   Web request body → **Issue data (legacy)** (this is what makes the
+   payload shape match — it mirrors the classic webhook JSON the
+   function expects: `webhookEvent`, `issue`, `user`, `timestamp`).
+4. Enable each rule.
+
+**Option B — a real Jira webhook (needs Jira site-admin):**
+1. Jira **Settings → System → WebHooks → Create a webhook**.
+2. URL as above. Events: at least *Issue created*, *Issue updated*,
+   *Comment created*. Optionally scope with a JQL filter to one project.
+
+Either way, nothing needs to change in Jira beyond this — no custom
+fields are required for Phase 1 (severity is read straight from Jira's
+own Priority field; category and AI confidence are Phase 2 additions
+once classification exists).
+
+### 4. Backfill domains for better matching (optional)
+
+Ticket matching checks, in order: the requester's email against a
+client's contact email, then their email domain against
+`client_email_domains`, then any previously-remembered mapping. The
+domains table starts empty — add a row per client (`client_id`,
+`domain`) for any customer whose staff email won't match the one
+contact email on file, so their tickets match automatically instead of
+landing in the unmatched queue. There's no UI for this yet; add rows
+directly in the Supabase table editor.
+
+Anything that doesn't match automatically shows up under **Support →
+Review unmatched** — link it to the right client once, and every future
+ticket from that same email matches on its own from then on.
 
 ## Local development
 

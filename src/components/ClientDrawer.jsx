@@ -3,11 +3,12 @@ import {
   TIERS, STATUSES, LEAD_SOURCES, gbp, computeMrr, mrrDisplay, isMrrUnknown,
   computeNextReviewDate, reviewCadenceDays, fmtDate, fmtDateTime, fmtBytes, tierName, leadSourceLabel,
 } from '../lib/pricing.js'
-import { TierBadge, StatusBadge, ReviewBadge } from './Badges.jsx'
+import { TierBadge, StatusBadge, ReviewBadge, SeverityBadge, SlaStateBadge } from './Badges.jsx'
 import {
   createClient, updateClient, deleteClient, addActivity, removeActivity,
   uploadContract, removeContract, contractUrl,
 } from '../lib/clientsApi.js'
+import { fetchTicketsForClient } from '../lib/ticketsApi.js'
 
 const emptyForm = {
   business_name: '', contact_name: '', contact_email: '', contact_phone: '',
@@ -30,8 +31,21 @@ export default function ClientDrawer({ mode: initialMode, client, userId, onClos
   const [uploadError, setUploadError] = useState('')
   const [contractLinks, setContractLinks] = useState({})
   const fileInputRef = useRef(null)
+  const [tickets, setTickets] = useState([])
+  const [ticketsLoading, setTicketsLoading] = useState(false)
 
   const isNew = !current
+
+  useEffect(() => {
+    if (!current?.id) return
+    let active = true
+    setTicketsLoading(true)
+    fetchTicketsForClient(current.id)
+      .then((rows) => { if (active) setTickets(rows) })
+      .catch(() => { if (active) setTickets([]) })
+      .finally(() => { if (active) setTicketsLoading(false) })
+    return () => { active = false }
+  }, [current?.id])
 
   async function handleSave(e) {
     e.preventDefault()
@@ -184,6 +198,8 @@ export default function ClientDrawer({ mode: initialMode, client, userId, onClos
               onUpload={handleUpload}
               onRemoveContract={handleRemoveContract}
               onViewContract={handleViewContract}
+              tickets={tickets}
+              ticketsLoading={ticketsLoading}
             />
           ) : (
             <EditForm form={form} setForm={setForm} />
@@ -228,6 +244,7 @@ function ViewBody({
   c, confirmingDelete, setConfirmingDelete, onDelete, reviewOpen, setReviewOpen, reviewDate, setReviewDate,
   onMarkReviewed, activityDraft, setActivityDraft, onAddActivity, onRemoveActivity,
   uploading, uploadError, fileInputRef, onUpload, onRemoveContract, onViewContract,
+  tickets, ticketsLoading,
 }) {
   const nextDue = computeNextReviewDate(c)
   const previewDue = computeNextReviewDate({ ...c, last_reviewed_date: reviewDate })
@@ -297,6 +314,41 @@ function ViewBody({
           {leadSourceLabel(c.lead_source)}{c.lead_source_detail ? ` — ${c.lead_source_detail}` : ''}
         </ViewItem>
         <ViewItem label="Last reviewed">{fmtDate(c.last_reviewed_date)}</ViewItem>
+      </div>
+
+      <div className="mt-5 border-t border-stone pt-4">
+        <div className="mb-2.5 flex items-center justify-between">
+          <div className="font-mono text-[10px] uppercase tracking-wideish text-slate">Support</div>
+          {tickets.length > 0 && <span className="text-[11.5px] text-slate">{tickets.length} ticket{tickets.length === 1 ? '' : 's'}</span>}
+        </div>
+        {ticketsLoading ? (
+          <p className="mb-1 text-[12.5px] text-slate">Loading tickets…</p>
+        ) : tickets.length === 0 ? (
+          <p className="mb-1 text-[12.5px] text-slate">No support tickets on record.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {tickets.slice(0, 6).map((t) => (
+              <a
+                key={t.id}
+                href={t.jira_url || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2.5 rounded-[6px] border border-stone bg-white p-2.5 hover:border-petrol"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-semibold">{t.summary || t.jira_issue_key}</div>
+                  <div className="text-[11.5px] text-slate">
+                    {t.jira_issue_key} · {t.jira_status || 'Unknown status'} · {fmtDate(t.created_at?.slice(0, 10))}
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <SeverityBadge severity={t.severity} />
+                  <SlaStateBadge state={t.sla_state} />
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mt-5 border-t border-stone pt-4">

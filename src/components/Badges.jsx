@@ -47,3 +47,44 @@ export function SlaPill({ show }) {
   if (!show) return null
   return <span className="rounded bg-brass/15 px-1.5 py-0.5 font-mono text-[10.5px] text-brass-dark">+SLA</span>
 }
+
+const SEVERITY_CLASSES = {
+  P1: 'bg-status-churned/10 text-status-churned',
+  P2: 'bg-status-onboarding/10 text-status-onboarding',
+  P3: 'bg-status-lead/10 text-status-lead',
+  P4: 'bg-paper-dim text-slate',
+}
+
+export function SeverityBadge({ severity }) {
+  if (!severity) return null
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 font-mono text-[11px] font-semibold ${SEVERITY_CLASSES[severity] || SEVERITY_CLASSES.P4}`}>
+      {severity}
+    </span>
+  )
+}
+
+const SLA_STATE_LABELS = { within_sla: 'Within SLA', at_risk: 'SLA at risk', breached: 'SLA breached' }
+const SLA_STATE_CLASSES = {
+  within_sla: 'bg-status-active/10 text-status-active',
+  at_risk: 'bg-status-onboarding/10 text-status-onboarding',
+  breached: 'bg-status-churned/10 text-status-churned',
+}
+
+export function SlaStateBadge({ state }) {
+  if (!state || state === 'not_applicable') return null
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold ${SLA_STATE_CLASSES[state] || ''}`}>
+      {SLA_STATE_LABELS[state] || state}
+    </span>
+  )
+}
+
+export function MatchStatusBadge({ status }) {
+  if (status !== 'unmatched' && status !== 'ambiguous') return null
+  return (
+    <span className="inline-flex items-center rounded-full bg-status-onboarding/10 px-2.5 py-0.5 text-[11px] font-semibold text-status-onboarding">
+      {status === 'ambiguous' ? 'Ambiguous match' : 'Unmatched'}
+    </span>
+  )
+}
