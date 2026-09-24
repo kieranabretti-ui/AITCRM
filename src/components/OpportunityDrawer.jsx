@@ -176,6 +176,14 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
           <div className="mb-5 grid grid-cols-2 gap-x-5 gap-y-2 text-[12.5px]">
             {client.contact_email && <div><span className="text-slate">Email: </span>{client.contact_email}</div>}
             {client.device_count ? <div><span className="text-slate">Devices: </span>{client.device_count}</div> : null}
+            {client.website && (
+              <div className="col-span-2">
+                <span className="text-slate">Website: </span>
+                <a href={/^https?:\/\//.test(client.website) ? client.website : `https://${client.website}`} target="_blank" rel="noopener noreferrer" className="text-petrol underline underline-offset-2">
+                  {client.website}
+                </a>
+              </div>
+            )}
           </div>
 
           <div className="mb-5 rounded-md border border-stone bg-white p-4">
@@ -300,6 +308,23 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
               </div>
             )}
           </div>
+
+          {(client.client_activity?.length > 0) && (
+            <div className="mb-5 rounded-md border border-stone bg-white p-4">
+              <div className="eyebrow mb-3">Activity</div>
+              <div className="flex flex-col gap-2.5">
+                {[...client.client_activity].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((a) => (
+                  <div key={a.id} className="flex gap-2.5">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-petrol" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-[10.5px] text-slate">{fmtDateTime(a.created_at)}</div>
+                      <div className="whitespace-pre-wrap text-[13px]">{a.text}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {confirmingDelete ? (
             <div className="flex items-center justify-between gap-3 rounded-[6px] border border-status-churned bg-status-churned/10 p-3">
