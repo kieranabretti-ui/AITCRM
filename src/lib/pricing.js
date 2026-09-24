@@ -56,6 +56,18 @@ export function mrrDisplay(c) {
   return isMrrUnknown(c) ? 'TBC' : gbp(computeMrr(c))
 }
 
+// The contract's annual value is just twelve months of the same
+// tier/device/SLA pricing MRR is built from — never a separately
+// typed number, so it can't drift out of sync with a tier or device
+// count change the way a manually-entered figure could.
+export function computeAnnualValue(c) {
+  return computeMrr(c) * 12
+}
+
+export function annualValueDisplay(c) {
+  return isMrrUnknown(c) ? 'TBC' : gbp(computeAnnualValue(c))
+}
+
 // Review cadence: Gold and Platinum commit to a quarterly strategic
 // security review; Silver's only recurring touchpoint is the monthly
 // reporting pack.

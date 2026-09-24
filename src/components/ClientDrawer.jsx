@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   TIERS, STATUSES, LEAD_SOURCES, gbp, computeMrr, mrrDisplay, isMrrUnknown,
   computeNextReviewDate, reviewCadenceDays, fmtDate, fmtDateTime, fmtBytes, tierName, leadSourceLabel,
+  computeAnnualValue, annualValueDisplay,
 } from '../lib/pricing.js'
 import { TierBadge, StatusBadge, ReviewBadge, SeverityBadge, SlaStateBadge, RenewalBadge, HealthScoreBadge } from './Badges.jsx'
 import {
@@ -18,7 +19,7 @@ const emptyForm = {
   start_date: '', direct_debit: false, platform: '', on_site_server: false,
   lead_source: '', lead_source_detail: '', notes: '',
   contract_start_date: '', contract_renewal_date: '', notice_period_days: '',
-  contract_value_annual: '', services_included: '', price_increase_pct: '',
+  services_included: '', price_increase_pct: '',
   auto_renewal: true, contract_sla_terms: '',
 }
 
@@ -96,7 +97,10 @@ export default function ClientDrawer({ mode: initialMode, client, userId, sessio
       contract_start_date: form.contract_start_date || null,
       contract_renewal_date: form.contract_renewal_date || null,
       notice_period_days: form.notice_period_days === '' ? null : Number(form.notice_period_days),
-      contract_value_annual: form.contract_value_annual === '' ? null : Number(form.contract_value_annual),
+      // Never typed — twelve months of the same tier/device/SLA
+      // pricing the MRR figure above is built from, so it can't drift
+      // out of sync with a tier or device-count change.
+      contract_value_annual: computeAnnualValue(form),
       services_included: textToServices(form.services_included || ''),
       price_increase_pct: form.price_increase_pct === '' ? null : Number(form.price_increase_pct),
       auto_renewal: !!form.auto_renewal,
@@ -371,7 +375,7 @@ function ViewBody({
             </span>
           </ViewItem>
           <ViewItem label="Notice period">{c.notice_period_days ? `${c.notice_period_days} days` : ''}</ViewItem>
-          <ViewItem label="Annual value">{c.contract_value_annual ? gbp(c.contract_value_annual) : ''}</ViewItem>
+          <ViewItem label="Annual value">{annualValueDisplay(c)}</ViewItem>
           <ViewItem label="Annual price increase">{c.price_increase_pct ? `${c.price_increase_pct}%` : ''}</ViewItem>
           <ViewItem label="Auto-renewal">{c.contract_renewal_date ? (c.auto_renewal ? 'Yes' : 'No') : ''}</ViewItem>
         </div>
@@ -644,18 +648,20 @@ function EditForm({ form, setForm }) {
         </div>
         <div className="grid grid-cols-2 gap-3.5">
           <Field type="number" label="Notice period (days)" value={form.notice_period_days} onChange={(v) => set('notice_period_days', v)} />
-          <Field type="number" label="Annual contract value (£)" value={form.contract_value_annual} onChange={(v) => set('contract_value_annual', v)} />
-        </div>
-        <div className="grid grid-cols-2 gap-3.5">
           <Field type="number" label="Annual price increase (%)" value={form.price_increase_pct} onChange={(v) => set('price_increase_pct', v)} />
-          <div>
-            <label className="mb-1.5 block text-[12.5px] font-semibold">&nbsp;</label>
-            <label className="flex items-center gap-2 pt-2 text-[13px]">
-              <input type="checkbox" checked={form.auto_renewal} onChange={(e) => set('auto_renewal', e.target.checked)} className="h-4 w-4 accent-petrol" />
-              Auto-renews
-            </label>
-          </div>
         </div>
+        <div className="mb-3.5 flex items-baseline justify-between rounded-[6px] border border-stone bg-paper-dim p-3">
+          <span className="text-[12.5px] text-slate">Annual contract value</span>
+          <span className={`font-display text-lg font-bold tabular-nums ${isMrrUnknown(form) ? 'text-slate' : 'text-petrol'}`}>{annualValueDisplay(form)}</span>
+        </div>
+        <p className="mb-3.5 mt-[-8px] text-[11.5px] leading-relaxed text-slate">
+          Calculated automatically from the package tier, device count and SLA add-on above — twelve months of the
+          monthly recurring revenue figure. Not separately editable.
+        </p>
+        <label className="mb-3.5 flex items-center gap-2 text-[13px]">
+          <input type="checkbox" checked={form.auto_renewal} onChange={(e) => set('auto_renewal', e.target.checked)} className="h-4 w-4 accent-petrol" />
+          Auto-renews
+        </label>
         <Field label="Services included (comma-separated)" value={form.services_included} onChange={(v) => set('services_included', v)} />
         <label className="mb-1.5 block text-[12.5px] font-semibold">Contractual SLA terms</label>
         <textarea
