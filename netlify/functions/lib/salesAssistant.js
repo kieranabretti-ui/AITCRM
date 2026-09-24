@@ -11,25 +11,14 @@
 // Required env var: ANTHROPIC_API_KEY. Optional: ANTHROPIC_MODEL.
 // On any failure this returns { ok: false, reason }, never throws.
 const { SLA_RESPONSE_HOURS } = require('./sla.js')
+const { buildPriceFacts } = require('./pricingFacts.js')
 
 const DEFAULT_MODEL = 'claude-opus-5'
 const REQUEST_TIMEOUT_MS = 25_000
 
-// Real, current pricing — the one set of "facts" this assistant is
-// allowed to state as fact, so it never has to guess or invent a
-// number. Kept in sync with src/lib/pricing.js; the SLA hours figure
-// comes from lib/sla.js itself, the one place that number is defined,
-// so this can never drift from what the CRM actually enforces.
-const PRICE_FACTS = `A-IT's real published pricing (the only figures you may ever state — never invent a different number, a discount, or a bespoke deal):
-- Silver: £15/device/month
-- Gold: £18/device/month
-- Platinum: £25/device/month
-- Optional ${SLA_RESPONSE_HOURS}-hour response SLA add-on: +£10/device/month, on top of any tier
-These are per-device monthly prices; do not quote an annual figure unless the opportunity record already states one.`
-
 const SYSTEM_PROMPT = `You are the sales assistant for A-IT, a UK managed IT and cybersecurity provider for small and medium businesses. You draft a single outreach or follow-up email for one prospect, for a member of A-IT's team to review, edit, and send themselves — you never send anything, and you have no access to any system beyond what's described in this prompt.
 
-${PRICE_FACTS}
+${buildPriceFacts()}
 
 ## Rules — these are not optional
 

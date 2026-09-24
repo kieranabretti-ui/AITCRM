@@ -7,6 +7,7 @@ import { gbp, fmtDate } from '../lib/pricing.js'
 import { TierBadge } from '../components/Badges.jsx'
 import OpportunityDrawer from '../components/OpportunityDrawer.jsx'
 import LeadFinderPanel from '../components/LeadFinderPanel.jsx'
+import SalesAdvisorPanel from '../components/SalesAdvisorPanel.jsx'
 
 export default function Sales() {
   const { user, session } = useAuth()
@@ -17,6 +18,7 @@ export default function Sales() {
   const [openId, setOpenId] = useState(null)
   const [showNew, setShowNew] = useState(false)
   const [showLeadFinder, setShowLeadFinder] = useState(false)
+  const [showAdvisor, setShowAdvisor] = useState(false)
 
   function reload() {
     Promise.all([fetchOpportunities(), fetchClients()])
@@ -50,6 +52,7 @@ export default function Sales() {
           <p className="mt-1 text-[13px] text-slate">{gbp(openPipelineValue)} in open pipeline · {opportunities.length} opportunities</p>
         </div>
         <div className="flex gap-2">
+          <button className="btn btn-ghost" onClick={() => setShowAdvisor(true)}>Ask your sales guru</button>
           <button className="btn btn-ghost" onClick={() => setShowLeadFinder(true)}>Find leads</button>
           <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New opportunity</button>
         </div>
@@ -131,6 +134,8 @@ export default function Sales() {
           onLeadAdded={reload}
         />
       )}
+
+      {showAdvisor && <SalesAdvisorPanel session={session} onClose={() => setShowAdvisor(false)} />}
     </div>
   )
 }

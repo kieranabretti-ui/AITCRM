@@ -473,6 +473,38 @@ small status line under the company name in the results list
 lead, and a miss just means nothing gets added — it doesn't retry or
 escalate to a broader search.
 
+### 12. Sales guru (Sales page → "Ask your sales guru")
+
+No setup needed — reuses the same `ANTHROPIC_API_KEY` as the "Draft
+with AI" tool, no new key. A free-form chat (`sales-advisor.js` /
+`lib/salesAdvisor.js`) for tactical sales advice — chasing a specific
+prospect, objection handling, what to prioritise this week, how to
+follow up after a proposal's gone quiet — the kind of thing you'd ask
+an experienced sales lead, not a form to fill in.
+
+**What it's grounded in:** every request, the function fetches the
+live pipeline itself (stage counts and values, the opportunities
+that have gone longest without an update) and gives that to Claude as
+a compact snapshot — so its advice reflects what's actually on the
+board, not generic platitudes. It does *not* have every field of every
+opportunity in front of it; if you ask about a prospect that isn't in
+the "stalest" list it surfaces, it says so rather than inventing a
+history for them — paste in the relevant detail and it'll use it.
+
+**What it isn't:** a replacement for the per-opportunity "Draft with
+AI" tool (`lib/salesAssistant.js`) — that one has full context on one
+specific prospect and writes a ready-to-send email via a structured
+tool call. The guru is the opposite shape: broad strategic
+conversation, plain text replies, no tool access, and it can never
+write to or send anything — at most it'll suggest a line or two of
+outreach copy inline and point you at the per-opportunity drafting
+tool for the real thing.
+
+**Nothing is persisted.** The conversation lives only in the browser
+tab for that session — closing the panel or reloading the page clears
+it. There's no chat-history table and nothing written to any client's
+activity log.
+
 ## Local development
 
 ```bash
