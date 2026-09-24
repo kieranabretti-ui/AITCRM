@@ -135,7 +135,15 @@ export default function Sales() {
         />
       )}
 
-      {showAdvisor && <SalesAdvisorPanel session={session} onClose={() => setShowAdvisor(false)} />}
+      {showAdvisor && (
+        <SalesAdvisorPanel
+          session={session}
+          userId={user.id}
+          opportunities={opportunities}
+          onClose={() => setShowAdvisor(false)}
+          onSaved={reload}
+        />
+      )}
     </div>
   )
 }

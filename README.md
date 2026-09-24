@@ -500,10 +500,19 @@ write to or send anything — at most it'll suggest a line or two of
 outreach copy inline and point you at the per-opportunity drafting
 tool for the real thing.
 
-**Nothing is persisted.** The conversation lives only in the browser
-tab for that session — closing the panel or reloading the page clears
-it. There's no chat-history table and nothing written to any client's
-activity log.
+**Nothing is persisted automatically.** The conversation lives only in
+the browser tab for that session — closing the panel or reloading the
+page clears it, and there's no chat-history table.
+
+**Save to a lead — the one deliberate exception.** Any individual
+reply has a "Save to a lead…" link under it, and there's a "Save
+conversation to a lead" option in the panel header for the whole
+thread — both open a picker of your open opportunities and, on
+confirm, write the reply (or the full transcript) into that client's
+activity log via the same `addActivity` used everywhere else in the
+app, clearly labelled as coming from the sales guru chat with a
+timestamp. Nothing is ever saved without picking a lead and confirming
+it yourself.
 
 ## Local development
 
