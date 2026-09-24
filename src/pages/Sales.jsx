@@ -6,6 +6,7 @@ import { STAGES } from '../lib/sales.js'
 import { gbp, fmtDate } from '../lib/pricing.js'
 import { TierBadge } from '../components/Badges.jsx'
 import OpportunityDrawer from '../components/OpportunityDrawer.jsx'
+import LeadFinderPanel from '../components/LeadFinderPanel.jsx'
 
 export default function Sales() {
   const { user, session } = useAuth()
@@ -15,6 +16,7 @@ export default function Sales() {
   const [error, setError] = useState('')
   const [openId, setOpenId] = useState(null)
   const [showNew, setShowNew] = useState(false)
+  const [showLeadFinder, setShowLeadFinder] = useState(false)
 
   function reload() {
     Promise.all([fetchOpportunities(), fetchClients()])
@@ -47,7 +49,10 @@ export default function Sales() {
           <h1 className="font-display text-2xl font-semibold">Sales</h1>
           <p className="mt-1 text-[13px] text-slate">{gbp(openPipelineValue)} in open pipeline · {opportunities.length} opportunities</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New opportunity</button>
+        <div className="flex gap-2">
+          <button className="btn btn-ghost" onClick={() => setShowLeadFinder(true)}>Find leads</button>
+          <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New opportunity</button>
+        </div>
       </div>
 
       {error && (
@@ -115,6 +120,15 @@ export default function Sales() {
           userId={user.id}
           onClose={() => setShowNew(false)}
           onCreated={(opp) => { setShowNew(false); reload(); setOpenId(opp.id) }}
+        />
+      )}
+
+      {showLeadFinder && (
+        <LeadFinderPanel
+          session={session}
+          userId={user.id}
+          onClose={() => setShowLeadFinder(false)}
+          onLeadAdded={reload}
         />
       )}
     </div>

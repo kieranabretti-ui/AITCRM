@@ -380,6 +380,45 @@ it's instant, free, and its reasoning is always inspectable rather
 than an opaque suggestion. Shown in the client drawer and as a column
 on the Clients table.
 
+### 9. Lead finder (Sales page → "Find leads")
+
+**Get a free Companies House API key** —
+[developer.company-information.service.gov.uk](https://developer.company-information.service.gov.uk),
+sign in, **Your applications → Create new key** (client type: API key).
+Add it to Netlify as `COMPANIES_HOUSE_API_KEY`.
+
+**What this is, deliberately, and what it isn't:** this searches the
+UK's official, free, structured Companies House register
+(`lib/companiesHouse.js`) — it does **not** scrape any website. A
+general-purpose scraper (company sites, Google/search-engine results,
+LinkedIn) was the original ask, but isn't something this app builds:
+most of it breaks the target sites' own terms of service (LinkedIn in
+particular explicitly prohibits and actively pursues scraping), and
+using scraped personal contact details for unsolicited marketing runs
+into UK PECR/GDPR risk that would sit on A-IT's name, not a third
+party's.
+
+**What you get:** company name, registered office address, SIC
+code(s), status, and incorporation date, for companies whose
+registered office is in one of a preset list of Dorset-area towns
+(Companies House matches by town/locality, not county — "Dorset"
+itself usually isn't a locality value). Optionally narrowed by a
+curated set of SIC codes for likely MSP prospects (accountants,
+solicitors, medical/dental, architects, engineering, management
+consultancy, and so on), or any custom SIC code.
+
+**What you don't get, and never will from this source:** employee
+count and named contact details. Companies House doesn't hold either —
+it's a company register, not a marketing database. "Add as
+opportunity" creates the client and a **New**-stage Sales opportunity
+with the registered address on file and a clear note that contact
+details need confirming before any outreach (the registered office is
+also frequently not where a company actually trades — many use an
+accountant's address). If you want verified employee counts and
+compliant contact data, that's a job for a proper B2B data provider
+(Apollo.io, ZoomInfo, Lusha, Cognism, Data8...) — ask if you'd like a
+CSV importer built for one of those instead.
+
 ## Local development
 
 ```bash
