@@ -441,6 +441,38 @@ an unattended crawl. Results are best-effort and unverified by design
 (no fabricated confidence) — always shown with a reminder to check
 before use.
 
+### 11. Auto lead enrichment (Sales → "Find leads" → "Add as opportunity")
+
+No setup needed — reuses everything above, no new API key. Companies
+House never gives a website, so when you add one of its results as an
+opportunity, `enrich-lead.js` tries to fill that gap automatically:
+
+1. **Guess a domain from the company name** (`lib/domainGuesser.js`) —
+   strips the legal suffix ("Limited"/"Ltd"/"LLP"/...), builds a
+   handful of plausible `.co.uk`/`.com` candidates from what's left,
+   and fetches each one directly. This is still not the search-engine
+   query that was floated earlier — it never asks Google/Bing/any
+   third-party platform "what's their website"; it only ever fetches
+   domains it constructed itself from the company name, the same way
+   someone might type a guess into the address bar.
+2. **Verify before trusting it** — a candidate only counts as a match
+   if enough of the company's own name-words actually turn up on that
+   page. No match found (common — plenty of real domains don't follow
+   a guessable pattern) means it stops there and says so, rather than
+   attaching a wrong site to the wrong company.
+3. **If a domain matches**, it runs the same single-site contact
+   lookup as #10 above against it, saves the website onto the new
+   client record, and logs whatever it found (or didn't) as an
+   activity note — clearly labelled as an **unverified guess to
+   confirm**, never presented as a confirmed match.
+
+Runs in the background right after "Add as opportunity" — shown as a
+small status line under the company name in the results list
+("Looking for their website…" → "Website + contact info found
+(unverified)" or "No matching website found"). Never blocks adding the
+lead, and a miss just means nothing gets added — it doesn't retry or
+escalate to a broader search.
+
 ## Local development
 
 ```bash

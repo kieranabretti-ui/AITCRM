@@ -52,6 +52,15 @@ export async function searchLeads({ localities, sicCodes, companyStatus }, acces
   return results
 }
 
+// Best-effort, unverified auto-enrichment for a newly-added lead —
+// guesses a website from the company name and, if one plausibly
+// matches, pulls the same general contact info the manual "Find
+// contact info" tool does. See enrich-lead.js / lib/domainGuesser.js
+// for exactly how the guess is made and verified.
+export async function enrichLead(companyName, accessToken) {
+  return callFunction('enrich-lead', { companyName }, accessToken)
+}
+
 export function formatAddress(address) {
   if (!address) return ''
   return [address.line1, address.line2, address.locality, address.region, address.postcode]

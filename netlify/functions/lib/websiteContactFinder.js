@@ -191,4 +191,7 @@ async function findContactInfo(inputUrl) {
   }
 }
 
-module.exports = { findContactInfo }
+// normalizeUrl/assertPublicHost/fetchWithLimits are also reused by
+// lib/domainGuesser.js, which needs the same SSRF-safe fetch to probe
+// candidate domains it has guessed rather than been given.
+module.exports = { findContactInfo, normalizeUrl, assertPublicHost, fetchWithLimits, USER_AGENT }

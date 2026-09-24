@@ -1,7 +1,25 @@
 import { useState } from 'react'
-import { DORSET_LOCALITIES, SIC_PRESETS, COMPANY_STATUSES, searchLeads, formatAddress } from '../lib/leadFinder.js'
+import { DORSET_LOCALITIES, SIC_PRESETS, COMPANY_STATUSES, searchLeads, enrichLead, formatAddress } from '../lib/leadFinder.js'
 import { createOpportunityForNewLead } from '../lib/salesApi.js'
+import { updateClient, addActivity } from '../lib/clientsApi.js'
 import { fmtDate } from '../lib/pricing.js'
+
+function buildEnrichmentNote(result) {
+  const lines = [`Auto-detected website (unverified guess, confirm before use): ${result.website}`]
+  if (result.emails?.length) lines.push(`Email(s) published there: ${result.emails.join(', ')}`)
+  if (result.phones?.length) lines.push(`Phone(s) published there: ${result.phones.join(', ')}`)
+  if (result.employeeCountHint) lines.push(`Mentioned on their site: ${result.employeeCountHint}`)
+  if (lines.length === 1) lines.push('No contact details found published on that site.')
+  return lines.join('\n')
+}
+
+function enrichLabel(status) {
+  if (status === 'searching') return 'Looking for their website…'
+  if (status === 'found') return 'Website + contact info found (unverified) — check the client record'
+  if (status === 'none') return 'No matching website found'
+  if (status === 'error') return 'Website lookup failed'
+  return ''
+}
 
 const DEFAULT_LOCALITIES = ['Bournemouth', 'Poole', 'Christchurch', 'Dorchester', 'Weymouth', 'Blandford Forum']
 const MAX_LOCALITIES = 8
@@ -16,6 +34,7 @@ export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded 
   const [error, setError] = useState('')
   const [addedNumbers, setAddedNumbers] = useState(new Set())
   const [addingNumber, setAddingNumber] = useState(null)
+  const [enrichStatus, setEnrichStatus] = useState({})
 
   function toggleLocality(loc) {
     setLocalities((prev) => (prev.includes(loc) ? prev.filter((l) => l !== loc) : [...prev, loc]))
@@ -46,7 +65,7 @@ export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded 
     setError('')
     try {
       const sicLabel = company.sicCodes.map((c) => SIC_PRESETS.find((p) => p.code === c)?.label || c).join(', ')
-      await createOpportunityForNewLead(
+      const opp = await createOpportunityForNewLead(
         {
           business_name: company.companyName,
           site_address: formatAddress(company.address),
@@ -57,11 +76,35 @@ export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded 
       )
       setAddedNumbers((prev) => new Set(prev).add(company.companyNumber))
       onLeadAdded?.()
+      runEnrichment(company, opp)
     } catch (err) {
       setError(err.message)
     } finally {
       setAddingNumber(null)
     }
+  }
+
+  // Fires after the opportunity is created — never blocks the "Added"
+  // state on it, since the website guess can take a few seconds and
+  // sometimes finds nothing at all.
+  function runEnrichment(company, opp) {
+    const clientId = opp?.clients?.id
+    if (!clientId) return
+    setEnrichStatus((s) => ({ ...s, [company.companyNumber]: 'searching' }))
+    enrichLead(company.companyName, session.access_token)
+      .then(async (result) => {
+        if (!result?.website) {
+          setEnrichStatus((s) => ({ ...s, [company.companyNumber]: 'none' }))
+          return
+        }
+        await updateClient(clientId, { website: result.website })
+        await addActivity(clientId, buildEnrichmentNote(result), userId)
+        setEnrichStatus((s) => ({ ...s, [company.companyNumber]: 'found' }))
+        onLeadAdded?.()
+      })
+      .catch(() => {
+        setEnrichStatus((s) => ({ ...s, [company.companyNumber]: 'error' }))
+      })
   }
 
   return (
@@ -77,10 +120,11 @@ export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded 
           <div className="overflow-y-auto px-5 py-4">
             <p className="mb-4 rounded-[6px] border border-stone bg-paper-dim p-3 text-[12px] leading-relaxed text-slate">
               Searches the UK's official <b className="text-ink">Companies House</b> register — never a scrape of any
-              other site. Returns company name, registered office address, SIC code and incorporation date only.{' '}
-              <b className="text-ink">Employee count and contact details aren't available from this source</b> —
-              confirm those yourself before reaching out, and make sure any outreach identifies A-IT clearly and
-              offers an opt-out (PECR).
+              other site. Returns company name, registered office address, SIC code and incorporation date only.
+              When you add one as an opportunity, it also tries to guess their website from the company name and
+              checks it for a published contact — a best-effort, unverified guess, never a search engine or
+              third-party platform. <b className="text-ink">Always confirm details before reaching out</b>, and make
+              sure any outreach identifies A-IT clearly and offers an opt-out (PECR).
             </p>
 
             {error && (
@@ -154,6 +198,9 @@ export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded 
                         <div className="truncate text-[11.5px] text-slate">
                           {formatAddress(c.address)} · {c.incorporatedOn ? `inc. ${fmtDate(c.incorporatedOn)}` : 'incorporation date unknown'}
                         </div>
+                        {enrichStatus[c.companyNumber] && (
+                          <div className="mt-0.5 text-[11px] text-petrol">{enrichLabel(enrichStatus[c.companyNumber])}</div>
+                        )}
                       </div>
                       <button
                         onClick={() => handleAdd(c)}
