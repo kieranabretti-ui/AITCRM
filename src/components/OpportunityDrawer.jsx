@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchOpportunity, updateOpportunity, updateStage, deleteOpportunity, requestSalesDraft } from '../lib/salesApi.js'
+import { updateClient } from '../lib/clientsApi.js'
+import { findContactInfo } from '../lib/contactFinder.js'
 import { STAGES, DRAFT_GOALS } from '../lib/sales.js'
 import { fmtDateTime } from '../lib/pricing.js'
 import { TierBadge } from './Badges.jsx'
@@ -15,6 +17,10 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
   const [goal, setGoal] = useState(DRAFT_GOALS[0].id)
   const [drafting, setDrafting] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [websiteInput, setWebsiteInput] = useState('')
+  const [finding, setFinding] = useState(false)
+  const [contactResult, setContactResult] = useState(null)
+  const [copiedField, setCopiedField] = useState('')
 
   function load() {
     setLoading(true)
@@ -27,6 +33,7 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
           notes: o.notes || '',
         })
         setLostReason(o.lost_reason || '')
+        setWebsiteInput(o.clients?.website || '')
       })
       .catch((err) => setError(err.message || 'Could not load this opportunity.'))
       .finally(() => setLoading(false))
@@ -103,6 +110,32 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
     navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  async function handleFindContact() {
+    if (!websiteInput.trim()) { setError('Enter the company\'s website first.'); return }
+    setFinding(true)
+    setError('')
+    setContactResult(null)
+    try {
+      if (websiteInput !== (opp.clients?.website || '') && opp.clients?.id) {
+        await updateClient(opp.clients.id, { website: websiteInput.trim() })
+        setOpp((o) => ({ ...o, clients: { ...o.clients, website: websiteInput.trim() } }))
+      }
+      const result = await findContactInfo(websiteInput.trim(), session.access_token)
+      setContactResult(result)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setFinding(false)
+    }
+  }
+
+  function handleCopyField(value, field) {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopiedField(field)
+      setTimeout(() => setCopiedField(''), 2000)
     })
   }
 
@@ -213,6 +246,57 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
                 {opp.ai_draft_generated_at && (
                   <p className="mt-2 text-[10.5px] text-slate">Generated {fmtDateTime(opp.ai_draft_generated_at)}</p>
                 )}
+              </div>
+            )}
+          </div>
+
+          <div className="mb-5 rounded-md border border-stone bg-white p-4">
+            <div className="eyebrow mb-3">Find contact info</div>
+            <p className="mb-3 text-[11.5px] leading-relaxed text-slate">
+              Reads this company's own website — never a third-party platform — for the general email/phone/employee
+              count they've chosen to publish. Best-effort, not verified; check it before you use it.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="company-website.co.uk"
+                value={websiteInput}
+                onChange={(e) => setWebsiteInput(e.target.value)}
+                className="field-input flex-1"
+              />
+              <button onClick={handleFindContact} disabled={finding} className="btn btn-primary shrink-0 px-2.5 py-1 text-[12px] disabled:opacity-50">
+                {finding ? 'Looking…' : 'Find contact info'}
+              </button>
+            </div>
+
+            {contactResult && (
+              <div className="mt-3.5 rounded-[6px] border border-stone bg-paper-dim p-3">
+                {contactResult.emails.length === 0 && contactResult.phones.length === 0 && !contactResult.employeeCountHint ? (
+                  <p className="text-[12.5px] text-slate">Nothing published on their site that we could find.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {contactResult.emails.map((email) => (
+                      <div key={email} className="flex items-center justify-between gap-2">
+                        <span className="text-[12.5px]">{email}</span>
+                        <button onClick={() => handleCopyField(email, email)} className="text-[11px] font-semibold text-petrol underline underline-offset-2">
+                          {copiedField === email ? 'Copied ✓' : 'Copy'}
+                        </button>
+                      </div>
+                    ))}
+                    {contactResult.phones.map((phone) => (
+                      <div key={phone} className="flex items-center justify-between gap-2">
+                        <span className="text-[12.5px]">{phone}</span>
+                        <button onClick={() => handleCopyField(phone, phone)} className="text-[11px] font-semibold text-petrol underline underline-offset-2">
+                          {copiedField === phone ? 'Copied ✓' : 'Copy'}
+                        </button>
+                      </div>
+                    ))}
+                    {contactResult.employeeCountHint && (
+                      <div className="text-[12.5px]"><span className="text-slate">Mentioned on their site: </span>{contactResult.employeeCountHint}</div>
+                    )}
+                  </div>
+                )}
+                <p className="mt-2 text-[10.5px] text-slate">Checked {contactResult.pagesChecked.join(', ')} on {contactResult.sourceUrl}</p>
               </div>
             )}
           </div>

@@ -524,3 +524,11 @@ alter table public.clients
   add column next_action_priority text
     check (next_action_priority is null or next_action_priority in ('low', 'medium', 'high')),
   add column next_action_computed_at timestamptz;
+
+-- ---------------------------------------------------------------
+-- Client website (Phase 4) — see
+-- supabase/migrations/009_client_website.sql for the standalone version.
+-- ---------------------------------------------------------------
+
+alter table public.clients
+  add column website text default '';

@@ -419,6 +419,28 @@ compliant contact data, that's a job for a proper B2B data provider
 (Apollo.io, ZoomInfo, Lusha, Cognism, Data8...) — ask if you'd like a
 CSV importer built for one of those instead.
 
+### 10. Website contact finder (opportunity drawer → "Find contact info")
+
+No setup needed — no API key, nothing to configure. Given a company's
+website URL (stored on the client record, editable there or inline in
+the opportunity drawer), `website-contact-finder.js` fetches **that one
+site only** — its homepage plus a couple of likely `/contact` or
+`/about` pages, at most 3 requests — and pulls out whatever the
+business has published itself: a general `mailto:`/`tel:` contact, or
+a phrase like "20 employees" if their site happens to say so.
+
+This is deliberately not the general scraper originally asked for.
+The difference matters: it never touches LinkedIn, a search engine, or
+any directory site (the sources that would actually have verified
+employee counts, and the ones whose terms of service explicitly
+prohibit exactly this); it checks `robots.txt` first and skips
+anything disallowed; it identifies itself honestly in its User-Agent
+rather than pretending to be a browser; and it only ever reads a
+business's own public "how to reach us" page, once, on request — not
+an unattended crawl. Results are best-effort and unverified by design
+(no fabricated confidence) — always shown with a reminder to check
+before use.
+
 ## Local development
 
 ```bash

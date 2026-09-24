@@ -13,7 +13,7 @@ import { fetchTicketsForClient } from '../lib/ticketsApi.js'
 import TicketDrawer from './TicketDrawer.jsx'
 
 const emptyForm = {
-  business_name: '', contact_name: '', contact_email: '', contact_phone: '',
+  business_name: '', contact_name: '', contact_email: '', contact_phone: '', website: '',
   secondary_contact_name: '', secondary_contact_phone: '', site_address: '',
   tier: 'gold', device_count: '', sla_addon: false, status: 'onboarding',
   start_date: '', direct_debit: false, platform: '', on_site_server: false,
@@ -80,6 +80,7 @@ export default function ClientDrawer({ mode: initialMode, client, userId, sessio
       contact_name: form.contact_name || '',
       contact_email: form.contact_email || '',
       contact_phone: form.contact_phone || '',
+      website: form.website || '',
       secondary_contact_name: form.secondary_contact_name || '',
       secondary_contact_phone: form.secondary_contact_phone || '',
       site_address: form.site_address || '',
@@ -324,6 +325,9 @@ function ViewBody({
         <ViewItem label="Primary contact">{c.contact_name}</ViewItem>
         <ViewItem label="Contact email">{c.contact_email}</ViewItem>
         <ViewItem label="Contact phone">{c.contact_phone}</ViewItem>
+        <ViewItem label="Website">
+          {c.website ? <a href={/^https?:\/\//.test(c.website) ? c.website : `https://${c.website}`} target="_blank" rel="noopener noreferrer" className="text-petrol underline underline-offset-2">{c.website}</a> : null}
+        </ViewItem>
         <ViewItem label="Devices / endpoints">{c.device_count}</ViewItem>
         <ViewItem label="Secondary contact">{c.secondary_contact_name}</ViewItem>
         <ViewItem label="Secondary phone">{c.secondary_contact_phone}</ViewItem>
@@ -566,6 +570,7 @@ function EditForm({ form, setForm }) {
           <Field label="Contact name" value={form.contact_name} onChange={(v) => set('contact_name', v)} />
           <Field type="email" label="Contact email" value={form.contact_email} onChange={(v) => set('contact_email', v)} />
         </div>
+        <Field label="Website" value={form.website} onChange={(v) => set('website', v)} />
         <Field type="tel" label="Contact phone" value={form.contact_phone} onChange={(v) => set('contact_phone', v)} />
       </fieldset>
 
