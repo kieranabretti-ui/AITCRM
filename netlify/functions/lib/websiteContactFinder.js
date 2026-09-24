@@ -60,6 +60,9 @@ async function assertPublicHost(hostname) {
   }
 }
 
+// Returns { html, reason } — html is null on any failure, with reason
+// naming *why* so findContactInfo can report something more useful
+// than a three-way guess when every attempted page fails the same way.
 async function fetchWithLimits(url) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -69,13 +72,15 @@ async function fetchWithLimits(url) {
       redirect: 'follow',
       headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
     })
-    if (!res.ok) return null
+    if (!res.ok) return { html: null, reason: `http_${res.status}` }
     const contentType = res.headers.get('content-type') || ''
-    if (!contentType.includes('text/html') && !contentType.includes('text/plain')) return null
+    if (!contentType.includes('text/html') && !contentType.includes('text/plain')) {
+      return { html: null, reason: 'not_html' }
+    }
     // Read with a size cap rather than trusting Content-Length, which a
     // server can omit or misreport.
     const reader = res.body?.getReader()
-    if (!reader) return (await res.text()).slice(0, MAX_RESPONSE_BYTES)
+    if (!reader) return { html: (await res.text()).slice(0, MAX_RESPONSE_BYTES), reason: null }
     const decoder = new TextDecoder()
     let text = ''
     let bytes = 0
@@ -86,9 +91,9 @@ async function fetchWithLimits(url) {
       text += decoder.decode(value, { stream: true })
     }
     await reader.cancel().catch(() => {})
-    return text
-  } catch {
-    return null
+    return { html: text, reason: null }
+  } catch (err) {
+    return { html: null, reason: err?.name === 'AbortError' ? 'timeout' : 'unreachable' }
   } finally {
     clearTimeout(timeout)
   }
@@ -97,7 +102,7 @@ async function fetchWithLimits(url) {
 // Minimal robots.txt parsing: the Disallow rules under the `User-agent:
 // *` group (we don't claim a specific identity most sites would list).
 async function fetchDisallowedPaths(origin) {
-  const text = await fetchWithLimits(`${origin}/robots.txt`)
+  const { html: text } = await fetchWithLimits(`${origin}/robots.txt`)
   if (!text) return []
   const lines = text.split('\n').map((l) => l.trim())
   const disallowed = []
@@ -117,6 +122,34 @@ async function fetchDisallowedPaths(origin) {
 
 function isAllowed(pathname, disallowedPaths) {
   return !disallowedPaths.some((p) => pathname.startsWith(p))
+}
+
+// Every attempted path failed for its own reason (a redirect chain can
+// even mean different reasons for different paths) — pick the single
+// most useful one to report rather than a generic three-way guess.
+// Priority: a specific HTTP status (almost always bot/security
+// protection like Cloudflare, which this tool can't and won't try to
+// get around) outranks "not HTML", which outranks robots.txt, which
+// outranks a bare network failure.
+function describeFailure(attempted) {
+  if (attempted.length === 0) return 'Could not fetch that site — no reachable pages found.'
+  const byReason = (r) => attempted.find((a) => a.reason === r || (r === 'http' && a.reason?.startsWith('http_')))
+
+  const blocked = byReason('http')
+  if (blocked) {
+    const status = blocked.reason.replace('http_', '')
+    return `That site returned an HTTP ${status} for every page we tried — likely bot/security protection (e.g. Cloudflare) blocking automated requests, not something this tool can or should try to get around.`
+  }
+  if (byReason('not_html')) {
+    return 'That page didn\'t return HTML we could read — it may have redirected elsewhere or served a non-HTML file.'
+  }
+  if (attempted.every((a) => a.reason === 'robots')) {
+    return 'That site\'s robots.txt disallows automated requests to every page we tried — this tool respects that rather than overriding it.'
+  }
+  if (byReason('timeout')) {
+    return `That site took too long to respond (over ${FETCH_TIMEOUT_MS / 1000}s) — it may be slow or temporarily down.`
+  }
+  return 'Could not connect to that site — check the URL is correct and that the site is actually online.'
 }
 
 const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g
@@ -161,15 +194,22 @@ async function findContactInfo(inputUrl) {
   const allPhones = new Set()
   let employeeCountHint = null
   const pagesChecked = []
+  const attempted = [] // { path, reason: 'robots' | fetchWithLimits's reason }
 
   for (const path of pathsToTry) {
     if (pagesChecked.length >= MAX_PAGES) break
     if (seen.has(path)) continue
     seen.add(path)
-    if (!isAllowed(path, disallowed)) continue
+    if (!isAllowed(path, disallowed)) {
+      attempted.push({ path, reason: 'robots' })
+      continue
+    }
 
-    const html = await fetchWithLimits(`${origin}${path}`)
-    if (!html) continue
+    const { html, reason } = await fetchWithLimits(`${origin}${path}`)
+    if (!html) {
+      attempted.push({ path, reason })
+      continue
+    }
     pagesChecked.push(path)
 
     const found = extractContacts(html)
@@ -179,7 +219,7 @@ async function findContactInfo(inputUrl) {
   }
 
   if (pagesChecked.length === 0) {
-    throw new Error('Could not fetch that site (blocked by robots.txt, unreachable, or not HTML).')
+    throw new Error(describeFailure(attempted))
   }
 
   return {
