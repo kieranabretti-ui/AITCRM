@@ -2,7 +2,7 @@
 // response-time commitment, not a resolution guarantee (see spec).
 // Phase 1 computes this opportunistically at sync time; Phase 2's
 // scheduled sla-check.js keeps it current between webhook deliveries.
-const SLA_RESPONSE_HOURS = 2
+const SLA_RESPONSE_HOURS = 6
 const AT_RISK_WINDOW_MINUTES = 30
 
 function computeSla({ hasSlaAddon, createdAt, firstResponseAt }) {

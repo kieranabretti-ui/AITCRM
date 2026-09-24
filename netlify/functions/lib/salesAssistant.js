@@ -10,17 +10,21 @@
 //
 // Required env var: ANTHROPIC_API_KEY. Optional: ANTHROPIC_MODEL.
 // On any failure this returns { ok: false, reason }, never throws.
+const { SLA_RESPONSE_HOURS } = require('./sla.js')
+
 const DEFAULT_MODEL = 'claude-opus-5'
 const REQUEST_TIMEOUT_MS = 25_000
 
 // Real, current pricing — the one set of "facts" this assistant is
 // allowed to state as fact, so it never has to guess or invent a
-// number. Kept in sync with src/lib/pricing.js.
+// number. Kept in sync with src/lib/pricing.js; the SLA hours figure
+// comes from lib/sla.js itself, the one place that number is defined,
+// so this can never drift from what the CRM actually enforces.
 const PRICE_FACTS = `A-IT's real published pricing (the only figures you may ever state — never invent a different number, a discount, or a bespoke deal):
 - Silver: £15/device/month
 - Gold: £18/device/month
 - Platinum: £25/device/month
-- Optional 2-hour response SLA add-on: +£10/device/month, on top of any tier
+- Optional ${SLA_RESPONSE_HOURS}-hour response SLA add-on: +£10/device/month, on top of any tier
 These are per-device monthly prices; do not quote an annual figure unless the opportunity record already states one.`
 
 const SYSTEM_PROMPT = `You are the sales assistant for A-IT, a UK managed IT and cybersecurity provider for small and medium businesses. You draft a single outreach or follow-up email for one prospect, for a member of A-IT's team to review, edit, and send themselves — you never send anything, and you have no access to any system beyond what's described in this prompt.
@@ -30,7 +34,7 @@ ${PRICE_FACTS}
 ## Rules — these are not optional
 
 - Never invent a fact about the prospect's business, their current IT setup, a conversation that didn't happen, or a commitment A-IT hasn't made. If you don't know something, don't claim it.
-- Never promise a specific response time, project timeline, or outcome A-IT hasn't actually committed to — the 2-hour response SLA is the one concrete commitment you may cite, and only for clients who have (or are being offered) that add-on.
+- Never promise a specific response time, project timeline, or outcome A-IT hasn't actually committed to — the ${SLA_RESPONSE_HOURS}-hour response SLA is the one concrete commitment you may cite, and only for clients who have (or are being offered) that add-on.
 - Never discount, negotiate, or invent pricing beyond the published figures above. If the opportunity notes mention a specific quoted price, you may reference that figure; otherwise stick to the standard per-device rates.
 - Keep it concise, professional, and free of hard-sell pressure tactics (no artificial urgency, no fake scarcity). British business tone — direct, warm, not salesy.
 - Write only the one email requested for the stated goal; do not draft a whole sequence.

@@ -13,6 +13,7 @@
 // { ok: false, reason }, never throws — the caller escalates to a
 // human instead of blocking ticket processing.
 const { CATEGORIES } = require('./safety.js')
+const { SLA_RESPONSE_HOURS } = require('./sla.js')
 
 const DEFAULT_MODEL = 'claude-opus-5'
 const REQUEST_TIMEOUT_MS = 25_000
@@ -118,7 +119,7 @@ function buildUserPrompt({ ticket, client, priorTickets, comments, priorAnalysis
     lines.push(
       `- Business: ${client.business_name}`,
       `- Package tier: ${client.tier}`,
-      `- Has the 2-hour response SLA add-on: ${client.sla_addon ? 'yes' : 'no'}`,
+      `- Has the ${SLA_RESPONSE_HOURS}-hour response SLA add-on: ${client.sla_addon ? 'yes' : 'no'}`,
       `- Account status: ${client.status}`,
       `- Devices/endpoints on record: ${client.device_count ?? 'unknown'}`,
     )
