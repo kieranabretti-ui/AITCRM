@@ -1,8 +1,34 @@
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { DORSET_LOCALITIES, SIC_PRESETS, COMPANY_STATUSES, searchLeads, enrichLead, formatAddress } from '../lib/leadFinder.js'
 import { createOpportunityForNewLead } from '../lib/salesApi.js'
 import { updateClient, addActivity } from '../lib/clientsApi.js'
 import { fmtDate } from '../lib/pricing.js'
+
+// Remembers the last search (form, results, which leads were already
+// added) and scroll position across closing/reopening the panel or
+// reloading the page entirely — this is a per-browser convenience, not
+// shared data, so localStorage is the right place for it rather than
+// the database.
+const STORAGE_KEY = 'aitcrm.leadFinder.v1'
+
+function loadSavedState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function saveState(partial) {
+  try {
+    const current = loadSavedState() || {}
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...partial }))
+  } catch {
+    // Private browsing / storage disabled — the panel still works,
+    // it just won't remember anything between opens.
+  }
+}
 
 function buildEnrichmentNote(result) {
   const lines = [`Auto-detected website (unverified guess, confirm before use): ${result.website}`]
@@ -25,16 +51,52 @@ const DEFAULT_LOCALITIES = ['Bournemouth', 'Poole', 'Christchurch', 'Dorchester'
 const MAX_LOCALITIES = 8
 
 export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded }) {
-  const [localities, setLocalities] = useState(DEFAULT_LOCALITIES)
-  const [sicCodes, setSicCodes] = useState([])
-  const [customSic, setCustomSic] = useState('')
-  const [status, setStatus] = useState('active')
+  const savedRef = useRef(loadSavedState())
+  const saved = savedRef.current
+  const scrollRef = useRef(null)
+  const scrollSaveTimer = useRef(null)
+
+  const [localities, setLocalities] = useState(saved?.localities ?? DEFAULT_LOCALITIES)
+  const [sicCodes, setSicCodes] = useState(saved?.sicCodes ?? [])
+  const [customSic, setCustomSic] = useState(saved?.customSic ?? '')
+  const [status, setStatus] = useState(saved?.status ?? 'active')
   const [searching, setSearching] = useState(false)
-  const [results, setResults] = useState(null)
+  const [results, setResults] = useState(saved?.results ?? null)
   const [error, setError] = useState('')
-  const [addedNumbers, setAddedNumbers] = useState(new Set())
+  const [addedNumbers, setAddedNumbers] = useState(new Set(saved?.addedNumbers ?? []))
   const [addingNumber, setAddingNumber] = useState(null)
   const [enrichStatus, setEnrichStatus] = useState({})
+
+  // Persist the search form, its results, and which leads were
+  // already added — every change, so a reload mid-session loses
+  // nothing either.
+  useEffect(() => {
+    saveState({ localities, sicCodes, customSic, status, results, addedNumbers: Array.from(addedNumbers) })
+  }, [localities, sicCodes, customSic, status, results, addedNumbers])
+
+  // Restore scroll position once, before the first paint, so there's
+  // no visible jump — the saved results are already part of this same
+  // initial render (set from localStorage above), so there's
+  // something to scroll to immediately.
+  useLayoutEffect(() => {
+    if (scrollRef.current && saved?.scrollTop) {
+      scrollRef.current.scrollTop = saved.scrollTop
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function handleScroll() {
+    const top = scrollRef.current?.scrollTop
+    if (top == null) return
+    clearTimeout(scrollSaveTimer.current)
+    scrollSaveTimer.current = setTimeout(() => saveState({ scrollTop: top }), 150)
+  }
+
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   function toggleLocality(loc) {
     setLocalities((prev) => (prev.includes(loc) ? prev.filter((l) => l !== loc) : [...prev, loc]))
@@ -117,7 +179,7 @@ export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded 
             <button onClick={onClose} className="rounded border border-stone p-1.5 hover:bg-paper-dim" aria-label="Close">✕</button>
           </div>
 
-          <div className="overflow-y-auto px-5 py-4">
+          <div ref={scrollRef} onScroll={handleScroll} className="overflow-y-auto px-5 py-4">
             <p className="mb-4 rounded-[6px] border border-stone bg-paper-dim p-3 text-[12px] leading-relaxed text-slate">
               Searches the UK's official <b className="text-ink">Companies House</b> register — never a scrape of any
               other site. Returns company name, registered office address, SIC code and incorporation date only.
