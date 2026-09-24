@@ -12,7 +12,7 @@
 // network checks), they plug in as more fields on the context this
 // function builds — analyzeTicket()'s prompt-builder and tool schema
 // don't need to change shape to accommodate that.
-const { severityFromPriority } = require('./jira.js')
+const { severityFromPriority, priorityNameForSeverity } = require('./jira.js')
 const { loadSettings } = require('./settings.js')
 const { analyzeTicket } = require('./aiTechnician.js')
 const { confidenceBand, evaluateEscalation, normalizeSeverity, normalizeCategory } = require('./safety.js')
@@ -29,6 +29,15 @@ const ESCALATION_VALUES = ['None', 'Technician', 'Senior Technician', 'Security 
 
 function sanitizeLabel(label) {
   return String(label || '').trim().toLowerCase().replace(/\s+/g, '-').slice(0, 60)
+}
+
+// Jira has no universal "category" field, so the AI's category
+// classification is represented as a label instead — the same
+// low-risk-metadata treatment as severity, just via the mechanism
+// Jira actually offers. Prefixed so it's identifiable and swappable
+// (see the remove-old/add-new handling in runAiAnalysis below).
+function categoryLabel(category) {
+  return category ? `category-${sanitizeLabel(category)}` : null
 }
 
 // Renders the exact "AI TECHNICAL ANALYSIS" format from the spec as
@@ -207,7 +216,35 @@ async function runAiAnalysis(admin, { ticketRowId, fields, clientId, triggerEven
     try {
       const labels = ['ai-analyzed', ...(result.suggestedLabels || []).map(sanitizeLabel).filter(Boolean)]
       if (escalationGate.escalate) labels.push('needs-human-review')
-      await jiraClient.addLabels(fields.jiraIssueKey, labels)
+
+      // Category has no native Jira field, so it's represented as a
+      // "category-…" label — swap the old one out when it changes
+      // rather than letting them pile up. A human's category_locked
+      // override means the AI stops touching this label entirely, the
+      // same as it stops touching the CRM's own category column.
+      const removeLabels = []
+      if (!existingTicket?.category_locked) {
+        const newCategoryLabel = categoryLabel(category)
+        const oldCategoryLabel = categoryLabel(existingTicket?.category)
+        if (newCategoryLabel) labels.push(newCategoryLabel)
+        if (oldCategoryLabel && oldCategoryLabel !== newCategoryLabel) removeLabels.push(oldCategoryLabel)
+      }
+      await jiraClient.addLabels(fields.jiraIssueKey, labels, removeLabels)
+
+      // Severity is the other field the AI may auto-amend — writes
+      // straight onto Jira's native Priority field, unless a human has
+      // locked severity, in which case their own Jira edit (if any) wins.
+      if (!existingTicket?.severity_locked) {
+        try {
+          await jiraClient.setPriority(fields.jiraIssueKey, priorityNameForSeverity(severity))
+        } catch (err) {
+          // Own try/catch: an unrecognised priority name (a custom
+          // scheme on this Jira project) shouldn't stop the comment
+          // and labels below from still going out.
+          console.error(`[copilot] could not set Jira priority for ${fields.jiraIssueKey}:`, err.message)
+        }
+      }
+
       await jiraClient.addInternalComment(fields.jiraIssueKey, formatAnalysisComment(result, finalEscalation))
       jiraModified = true
 

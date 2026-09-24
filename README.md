@@ -253,6 +253,17 @@ in full.
   confidence, risk, and an escalation recommendation (None / Technician
   / Senior Technician / Security Escalation) — always posted as an
   **internal** (staff-only) Jira comment, never customer-visible.
+- **Severity and category now write back to Jira itself**, not just
+  the CRM. Severity maps onto Jira's native **Priority** field
+  (P1→Highest … P4→Low — the standard Jira Cloud scheme; a project with
+  a custom priority set just has this one write silently no-op, logged
+  in the function log, everything else keeps working). Category has no
+  universal Jira field, so it's represented as a `category-…` label,
+  swapped out for the new one whenever it changes rather than piling
+  up. A technician's **Override severity/category** in the ticket
+  drawer locks the field — the AI keeps analysing and keeps logging
+  what it *would* set, it just stops writing to that field, in Jira or
+  the CRM, until the lock is lifted ("Hand back to AI").
 - **It responds to what a technician does**, not just to the customer.
   If a technician comments "I'm going to reset the user's password", the
   next analysis can flag a relevant check to do first; if they say

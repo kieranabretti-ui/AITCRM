@@ -3,10 +3,12 @@
 // + JIRA_API_TOKEN), never a human's credentials.
 //
 // Deliberately small: only what the AI copilot flow needs (read the
-// comment thread, write a comment, apply labels). No transitions, no
-// field edits beyond labels — anything that could touch a Jira
-// workflow or a field this bot doesn't own stays a human action, per
-// the "never autonomously..." safety list.
+// comment thread, write a comment, apply labels, and set the two
+// fields explicitly allowed to auto-amend — Priority and, via a
+// label, category). No transitions, no other field edits — anything
+// that could touch a Jira workflow or a field this bot doesn't
+// explicitly own stays a human action, per the "never autonomously..."
+// safety list.
 const { cleanEmail } = require('./text.js')
 const { descriptionToText } = require('./jira.js')
 
@@ -74,11 +76,29 @@ async function addCustomerComment(issueKey, text) {
   })
 }
 
-async function addLabels(issueKey, labels) {
-  if (!labels?.length) return null
+// `removeLabels` is optional — used to swap out a stale "category-…"
+// label when the AI reclassifies a ticket's category, so labels don't
+// just accumulate every time it changes its mind.
+async function addLabels(issueKey, labels, removeLabels) {
+  if (!labels?.length && !removeLabels?.length) return null
+  const update = [...(labels || []).map((l) => ({ add: l })), ...(removeLabels || []).map((l) => ({ remove: l }))]
   return jiraFetch(`/rest/api/3/issue/${encodeURIComponent(issueKey)}`, {
     method: 'PUT',
-    body: JSON.stringify({ update: { labels: labels.map((l) => ({ add: l })) } }),
+    body: JSON.stringify({ update: { labels: update } }),
+  })
+}
+
+// Writes the AI's severity classification onto Jira's own native
+// Priority field (see lib/jira.js's priorityNameForSeverity) — this is
+// the one field edit beyond labels/comments this bot makes, since
+// severity is explicitly one of the low-risk metadata fields the
+// spec allows the AI to amend automatically. Still just a field value,
+// never a transition/workflow change.
+async function setPriority(issueKey, priorityName) {
+  if (!priorityName) return null
+  return jiraFetch(`/rest/api/3/issue/${encodeURIComponent(issueKey)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ fields: { priority: { name: priorityName } } }),
   })
 }
 
@@ -102,4 +122,4 @@ async function getComments(issueKey) {
   }))
 }
 
-module.exports = { isConfigured, addInternalComment, addCustomerComment, addLabels, getComments }
+module.exports = { isConfigured, addInternalComment, addCustomerComment, addLabels, setPriority, getComments }

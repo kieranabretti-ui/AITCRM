@@ -20,6 +20,18 @@ function severityFromPriority(priorityName) {
   return PRIORITY_TO_SEVERITY[priorityName.trim().toLowerCase()] || null
 }
 
+// The reverse of the map above, for writing the AI's own severity
+// classification back onto Jira's native Priority field — standard
+// Jira Cloud priority names. If a project uses a custom priority
+// scheme, this write is best-effort (see jiraClient.setPriority) and
+// simply fails harmlessly like any other Jira write-back; the CRM's
+// own severity still reflects the AI's judgement either way.
+const SEVERITY_TO_PRIORITY = { P1: 'Highest', P2: 'High', P3: 'Medium', P4: 'Low' }
+
+function priorityNameForSeverity(severity) {
+  return SEVERITY_TO_PRIORITY[severity] || null
+}
+
 // Jira Cloud issue descriptions are Atlassian Document Format (a JSON
 // tree), not plain text. This is a best-effort flatten — good enough
 // for a CRM summary; the full formatted version stays in Jira.
@@ -66,4 +78,4 @@ function extractTicketFields(issue) {
   }
 }
 
-module.exports = { severityFromPriority, descriptionToText, buildJiraUrl, extractTicketFields }
+module.exports = { severityFromPriority, priorityNameForSeverity, descriptionToText, buildJiraUrl, extractTicketFields }
