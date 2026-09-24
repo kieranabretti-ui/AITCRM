@@ -188,7 +188,15 @@ async function runAiAnalysis(admin, { ticketRowId, fields, clientId, triggerEven
     ticketUpdate.ai_draft_reply_status = 'pending'
   }
 
-  await admin.from('tickets').update(ticketUpdate).eq('id', ticketRowId)
+  const { error: ticketUpdateError } = await admin.from('tickets').update(ticketUpdate).eq('id', ticketRowId)
+  if (ticketUpdateError) {
+    // Almost always means the schema is out of date (migration
+    // 004_ai_copilot.sql not applied yet, so these columns don't
+    // exist) — loud in the function log rather than a silently empty
+    // ticket drawer with no clue why.
+    console.error(`[copilot] could not write AI state to tickets for ${fields.jiraIssueKey}:`, ticketUpdateError.message)
+    return { ran: false, reason: 'ticket_write_failed', error: ticketUpdateError.message }
+  }
 
   // Jira write-back is best-effort: a missing service-account token or
   // a transient Jira error must not undo the analysis already stored,
@@ -219,7 +227,7 @@ async function runAiAnalysis(admin, { ticketRowId, fields, clientId, triggerEven
     }
   }
 
-  await admin.from('ai_audit_log').insert({
+  const { error: auditError } = await admin.from('ai_audit_log').insert({
     ticket_id: ticketRowId,
     trigger_event: triggerEvent,
     decision: materialChange ? 'analysis' : 'analysis_no_change',
@@ -244,6 +252,10 @@ async function runAiAnalysis(admin, { ticketRowId, fields, clientId, triggerEven
     jira_modified: jiraModified,
     human_approval_required: Boolean(result.customerReplyDraft) && result.customerReplyRequiresApproval !== false,
   })
+  if (auditError) {
+    console.error(`[copilot] could not write ai_audit_log for ${fields.jiraIssueKey}:`, auditError.message)
+    return { ran: false, reason: 'audit_log_write_failed', error: auditError.message }
+  }
 
   return { ran: true, materialChange, escalated: escalationGate.escalate }
 }

@@ -81,7 +81,8 @@ exports.handler = async (event) => {
   })
 
   if (!result.ran) {
-    return { statusCode: 502, body: JSON.stringify({ error: `AI analysis could not run (${result.reason}).` }) }
+    const detail = result.error ? `: ${result.error}` : ''
+    return { statusCode: 502, body: JSON.stringify({ error: `AI analysis could not run (${result.reason})${detail}` }) }
   }
   return { statusCode: 200, body: JSON.stringify({ ok: true }) }
 }
