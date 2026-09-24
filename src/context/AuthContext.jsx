@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { supabase, supabaseConfigured } from '../lib/supabase.js'
 
 const AuthContext = createContext(null)
@@ -7,6 +7,15 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  // Tracks which user's profile is currently loaded, so a same-user
+  // token refresh (Supabase does this automatically whenever the tab
+  // regains focus/visibility, firing onAuthStateChange with a new
+  // session object every time) doesn't re-trigger the loading gate
+  // below. ProtectedRoute unmounts the whole app while loading is
+  // true, which was wiping out any open drawer or chat every time you
+  // tabbed back in — this makes "loading" mean "signing in", not
+  // "session object changed".
+  const loadedUserId = useRef(null)
 
   useEffect(() => {
     if (!supabaseConfigured) {
@@ -26,6 +35,7 @@ export function AuthProvider({ children }) {
       setSession(newSession)
       if (!newSession) {
         setProfile(null)
+        loadedUserId.current = null
         setLoading(false)
       }
     })
@@ -38,6 +48,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (!session) return
+    if (loadedUserId.current === session.user.id) return
     let active = true
     setLoading(true)
     supabase
@@ -48,6 +59,7 @@ export function AuthProvider({ children }) {
       .then(({ data }) => {
         if (!active) return
         setProfile(data || null)
+        loadedUserId.current = session.user.id
         setLoading(false)
       })
     return () => {
