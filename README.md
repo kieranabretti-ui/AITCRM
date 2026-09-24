@@ -514,6 +514,65 @@ app, clearly labelled as coming from the sales guru chat with a
 timestamp. Nothing is ever saved without picking a lead and confirming
 it yourself.
 
+### 13. Dorset IT Support landing page → lead intake (`dorset-lead-webhook.js`)
+
+Bridges the aitmsp marketing site's `/dorset-it-support` Google Ads
+landing page form into this CRM: every real submission becomes a
+client (`status: lead`, `lead_source: google_ads`) plus a matching
+`sales_opportunities` row (`stage: new`), so it shows up on the Sales
+pipeline exactly like a lead added manually or via the Companies House
+finder. No new tables or migration needed — it writes through the
+existing `clients`/`sales_opportunities` schema.
+
+This has to be a genuinely public endpoint (Netlify's own servers call
+it when the marketing site's form is submitted, not a signed-in team
+member), so it can't use the normal session-based auth every other
+write in this app requires. It uses a shared secret instead — same
+pattern as `jira-webhook.js`.
+
+**Setup:**
+
+1. Add the environment variable in Netlify → **Site configuration →
+   Environment variables**:
+
+   | Key | Value | Notes |
+   |---|---|---|
+   | `DORSET_LEAD_WEBHOOK_SECRET` | any long random string you generate | shared secret the webhook URL carries |
+
+   Redeploy after adding it.
+
+2. The webhook URL is:
+
+   ```
+   https://crm.a-it.uk/.netlify/functions/dorset-lead-webhook?secret=<DORSET_LEAD_WEBHOOK_SECRET>
+   ```
+
+3. **This one manual step is in the aitmsp site's own Netlify
+   dashboard, not this repo** — Netlify's Form notifications UI is the
+   only place to configure it, there's no config-as-code option:
+   Site configuration → **Forms → Form notifications → Add
+   notification → Outgoing webhook**. Set it up scoped to the
+   **`dorset-it-support`** form specifically (not "any form" — this
+   site also has the `contact` form, which shouldn't create CRM
+   leads), event **New form submission**, and paste the URL from step 2
+   as the payload URL.
+
+**Known limitation:** there's no dedup table for this (unlike the Jira
+webhook, which has one keyed by Jira's own event id) — a retried
+delivery from Netlify (which only happens if this function returns a
+5xx) could create a duplicate lead. Low-likelihood and low-cost if it
+does happen — a duplicate is just an extra card on the Sales board to
+merge or delete — so this was left out of scope for now rather than
+adding a table for it.
+
+If leads aren't showing up after setup, set `DEBUG_WEBHOOK=1` on this
+function in Netlify and check its logs (Netlify → this site →
+Functions → dorset-lead-webhook → Logs) next time the form is
+submitted — it logs the payload's shape (field names only, never lead
+content) so a mismatch between what Netlify actually sends and what
+this function expects shows up immediately instead of silently
+dropping submissions.
+
 ## Local development
 
 ```bash
