@@ -439,3 +439,77 @@ alter table public.ai_audit_log
 create policy "audit log updatable by team members"
   on public.ai_audit_log for update to authenticated
   using (public.is_team_member()) with check (public.is_team_member());
+
+-- ---------------------------------------------------------------
+-- Contract management (Phase 4) — see
+-- supabase/migrations/005_contracts.sql for the standalone version.
+-- ---------------------------------------------------------------
+
+alter table public.clients
+  add column contract_start_date date,
+  add column contract_renewal_date date,
+  add column notice_period_days integer,
+  add column contract_value_annual numeric(12, 2),
+  add column services_included jsonb not null default '[]'::jsonb,
+  add column price_increase_pct numeric(5, 2),
+  add column auto_renewal boolean not null default true,
+  add column contract_sla_terms text default '';
+
+create index clients_contract_renewal_date_idx on public.clients (contract_renewal_date)
+  where contract_renewal_date is not null;
+
+-- ---------------------------------------------------------------
+-- Customer health score (Phase 4) — see
+-- supabase/migrations/006_health_score.sql for the standalone version.
+-- ---------------------------------------------------------------
+
+alter table public.clients
+  add column health_score integer check (health_score is null or (health_score >= 0 and health_score <= 100)),
+  add column health_score_label text
+    check (health_score_label is null or health_score_label in ('Healthy', 'Watch', 'At risk', 'Critical')),
+  add column health_score_factors jsonb,
+  add column health_score_computed_at timestamptz;
+
+create index clients_health_score_idx on public.clients (health_score) where health_score is not null;
+
+-- ---------------------------------------------------------------
+-- Sales pipeline (Phase 4) — see
+-- supabase/migrations/007_sales_pipeline.sql for the standalone version.
+-- ---------------------------------------------------------------
+
+create table public.sales_opportunities (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references public.clients (id) on delete cascade,
+  stage text not null default 'new'
+    check (stage in ('new', 'qualified', 'proposal_sent', 'negotiation', 'won', 'lost')),
+  estimated_value_annual numeric(12, 2),
+  expected_close_date date,
+  notes text default '',
+  lost_reason text default '',
+  ai_draft_message jsonb,
+  ai_draft_generated_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by uuid references auth.users (id)
+);
+
+create index sales_opportunities_client_id_idx on public.sales_opportunities (client_id);
+create index sales_opportunities_stage_idx on public.sales_opportunities (stage) where stage not in ('won', 'lost');
+
+alter table public.sales_opportunities enable row level security;
+
+create policy "opportunities readable by team members"
+  on public.sales_opportunities for select to authenticated
+  using (public.is_team_member());
+
+create policy "opportunities writable by team members"
+  on public.sales_opportunities for insert to authenticated
+  with check (public.is_team_member());
+
+create policy "opportunities updatable by team members"
+  on public.sales_opportunities for update to authenticated
+  using (public.is_team_member()) with check (public.is_team_member());
+
+create policy "opportunities deletable by team members"
+  on public.sales_opportunities for delete to authenticated
+  using (public.is_team_member());

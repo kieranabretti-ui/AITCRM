@@ -30,6 +30,12 @@ export default function AppShell() {
             >
               Support
             </NavLink>
+            <NavLink
+              to="/sales"
+              className={({ isActive }) => (isActive ? 'font-semibold text-petrol' : 'text-ink/70 hover:text-ink')}
+            >
+              Sales
+            </NavLink>
             {isOwner && (
               <NavLink
                 to="/team"

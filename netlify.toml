@@ -9,6 +9,12 @@
 [functions."sla-check"]
   schedule = "*/15 * * * *"
 
+# Recomputes each active client's customer health score once a day —
+# see netlify/functions/lib/healthScore.js. Runs early morning UK time
+# so the Dashboard's "At-risk clients" panel is fresh for the day.
+[functions."health-score"]
+  schedule = "0 6 * * *"
+
 # React Router uses clean client-side URLs — without this, a direct
 # visit or refresh on those paths 404s.
 [[redirects]]

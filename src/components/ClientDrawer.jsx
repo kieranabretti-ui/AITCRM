@@ -3,7 +3,7 @@ import {
   TIERS, STATUSES, LEAD_SOURCES, gbp, computeMrr, mrrDisplay, isMrrUnknown,
   computeNextReviewDate, reviewCadenceDays, fmtDate, fmtDateTime, fmtBytes, tierName, leadSourceLabel,
 } from '../lib/pricing.js'
-import { TierBadge, StatusBadge, ReviewBadge, SeverityBadge, SlaStateBadge } from './Badges.jsx'
+import { TierBadge, StatusBadge, ReviewBadge, SeverityBadge, SlaStateBadge, RenewalBadge, HealthScoreBadge } from './Badges.jsx'
 import {
   createClient, updateClient, deleteClient, addActivity, removeActivity,
   uploadContract, removeContract, contractUrl,
@@ -17,12 +17,28 @@ const emptyForm = {
   tier: 'gold', device_count: '', sla_addon: false, status: 'lead',
   start_date: '', direct_debit: false, platform: '', on_site_server: false,
   lead_source: '', lead_source_detail: '', notes: '',
+  contract_start_date: '', contract_renewal_date: '', notice_period_days: '',
+  contract_value_annual: '', services_included: '', price_increase_pct: '',
+  auto_renewal: true, contract_sla_terms: '',
+}
+
+// services_included is stored as a jsonb array — the edit form just
+// works with a comma-separated string, split/joined at the boundary.
+function servicesToText(arr) { return Array.isArray(arr) ? arr.join(', ') : '' }
+function textToServices(text) { return text.split(',').map((s) => s.trim()).filter(Boolean) }
+
+// Every place form state is (re)built from a client record needs the
+// same services_included array->text conversion — one helper instead
+// of four inline spreads drifting out of sync.
+function toFormState(client) {
+  if (!client) return emptyForm
+  return { ...emptyForm, ...client, services_included: servicesToText(client.services_included) }
 }
 
 export default function ClientDrawer({ mode: initialMode, client, userId, session, onClose, onChanged }) {
   const [mode, setMode] = useState(initialMode === 'add' ? 'edit' : 'view')
   const [current, setCurrent] = useState(client)
-  const [form, setForm] = useState(client ? { ...emptyForm, ...client } : emptyForm)
+  const [form, setForm] = useState(toFormState(client))
   const [saving, setSaving] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
@@ -77,6 +93,14 @@ export default function ClientDrawer({ mode: initialMode, client, userId, sessio
       lead_source: form.lead_source || '',
       lead_source_detail: form.lead_source_detail || '',
       notes: form.notes || '',
+      contract_start_date: form.contract_start_date || null,
+      contract_renewal_date: form.contract_renewal_date || null,
+      notice_period_days: form.notice_period_days === '' ? null : Number(form.notice_period_days),
+      contract_value_annual: form.contract_value_annual === '' ? null : Number(form.contract_value_annual),
+      services_included: textToServices(form.services_included || ''),
+      price_increase_pct: form.price_increase_pct === '' ? null : Number(form.price_increase_pct),
+      auto_renewal: !!form.auto_renewal,
+      contract_sla_terms: form.contract_sla_terms || '',
     }
     try {
       let saved
@@ -87,7 +111,7 @@ export default function ClientDrawer({ mode: initialMode, client, userId, sessio
         saved = { ...current, ...payload }
       }
       setCurrent(saved)
-      setForm({ ...emptyForm, ...saved })
+      setForm(toFormState(saved))
       setMode('view')
       onChanged()
     } catch (err) {
@@ -110,7 +134,7 @@ export default function ClientDrawer({ mode: initialMode, client, userId, sessio
     await updateClient(current.id, { last_reviewed_date: reviewDate })
     const updated = { ...current, last_reviewed_date: reviewDate, activity: [row, ...(current.activity || [])] }
     setCurrent(updated)
-    setForm({ ...emptyForm, ...updated })
+    setForm(toFormState(updated))
     setReviewOpen(false)
     onChanged()
   }
@@ -224,7 +248,7 @@ export default function ClientDrawer({ mode: initialMode, client, userId, sessio
             <>
               <button
                 className="btn btn-ghost"
-                onClick={() => (isNew ? onClose() : (setForm({ ...emptyForm, ...current }), setMode('view')))}
+                onClick={() => (isNew ? onClose() : (setForm(toFormState(current)), setMode('view')))}
               >
                 Cancel
               </button>
@@ -279,10 +303,12 @@ function ViewBody({
         </div>
       )}
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <TierBadge tier={c.tier} />
         {c.sla_addon && <span className="rounded bg-brass/15 px-2 py-0.5 text-[11px] font-semibold text-brass-dark">+ Premium SLA</span>}
         <StatusBadge status={c.status} />
+        <RenewalBadge client={c} />
+        {c.status === 'active' && <HealthScoreBadge score={c.health_score} label={c.health_score_label} />}
       </div>
 
       <div className="mb-5 flex items-baseline justify-between rounded-[6px] border border-stone bg-paper-dim p-3.5">
@@ -333,6 +359,63 @@ function ViewBody({
         </ViewItem>
         <ViewItem label="Last reviewed">{fmtDate(c.last_reviewed_date)}</ViewItem>
       </div>
+
+      <div className="mt-5 border-t border-stone pt-4">
+        <div className="mb-2.5 font-mono text-[10px] uppercase tracking-wideish text-slate">Contract</div>
+        <div className="grid grid-cols-2 gap-x-5 gap-y-3.5">
+          <ViewItem label="Start date">{fmtDate(c.contract_start_date)}</ViewItem>
+          <ViewItem label="Renewal date">
+            <span className="flex flex-wrap items-center gap-1.5">
+              {fmtDate(c.contract_renewal_date) || <span className="text-slate">—</span>}
+              <RenewalBadge client={c} />
+            </span>
+          </ViewItem>
+          <ViewItem label="Notice period">{c.notice_period_days ? `${c.notice_period_days} days` : ''}</ViewItem>
+          <ViewItem label="Annual value">{c.contract_value_annual ? gbp(c.contract_value_annual) : ''}</ViewItem>
+          <ViewItem label="Annual price increase">{c.price_increase_pct ? `${c.price_increase_pct}%` : ''}</ViewItem>
+          <ViewItem label="Auto-renewal">{c.contract_renewal_date ? (c.auto_renewal ? 'Yes' : 'No') : ''}</ViewItem>
+        </div>
+        {c.services_included?.length > 0 && (
+          <div className="mt-3.5">
+            <div className="font-mono text-[10px] uppercase tracking-wideish text-slate">Services included</div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {c.services_included.map((s) => (
+                <span key={s} className="rounded bg-paper-dim px-2 py-0.5 text-[11.5px]">{s}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {c.contract_sla_terms && (
+          <div className="mt-3.5">
+            <div className="font-mono text-[10px] uppercase tracking-wideish text-slate">Contractual SLA terms</div>
+            <div className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed">{c.contract_sla_terms}</div>
+          </div>
+        )}
+      </div>
+
+      {c.status === 'active' && c.health_score != null && (
+        <div className="mt-5 border-t border-stone pt-4">
+          <div className="mb-2.5 flex items-center justify-between">
+            <div className="font-mono text-[10px] uppercase tracking-wideish text-slate">Health score</div>
+            <HealthScoreBadge score={c.health_score} label={c.health_score_label} />
+          </div>
+          {c.health_score_factors && Object.keys(c.health_score_factors).length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {Object.entries(c.health_score_factors).map(([key, f]) => (
+                <div key={key} className="flex items-center justify-between gap-2 text-[12.5px]">
+                  <span className="text-slate">{f.label || key}</span>
+                  <span className={f.points < 0 ? 'font-mono text-status-churned' : 'font-mono text-slate'}>
+                    {f.points > 0 ? '+' : ''}{f.points}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-2 text-[11px] text-slate">
+            Computed daily from ticket volume, SLA breaches, security incidents, backup failures, unresolved tickets and contract renewal proximity.
+          </p>
+        </div>
+      )}
 
       <div className="mt-5 border-t border-stone pt-4">
         <div className="mb-2.5 flex items-center justify-between">
@@ -551,6 +634,37 @@ function EditForm({ form, setForm }) {
           <input type="checkbox" checked={form.on_site_server} onChange={(e) => set('on_site_server', e.target.checked)} className="h-4 w-4 accent-petrol" />
           Has an on-site server
         </label>
+      </fieldset>
+
+      <fieldset>
+        <Legend>Contract</Legend>
+        <div className="grid grid-cols-2 gap-3.5">
+          <Field type="date" label="Contract start" value={form.contract_start_date} onChange={(v) => set('contract_start_date', v)} />
+          <Field type="date" label="Renewal date" value={form.contract_renewal_date} onChange={(v) => set('contract_renewal_date', v)} />
+        </div>
+        <div className="grid grid-cols-2 gap-3.5">
+          <Field type="number" label="Notice period (days)" value={form.notice_period_days} onChange={(v) => set('notice_period_days', v)} />
+          <Field type="number" label="Annual contract value (£)" value={form.contract_value_annual} onChange={(v) => set('contract_value_annual', v)} />
+        </div>
+        <div className="grid grid-cols-2 gap-3.5">
+          <Field type="number" label="Annual price increase (%)" value={form.price_increase_pct} onChange={(v) => set('price_increase_pct', v)} />
+          <div>
+            <label className="mb-1.5 block text-[12.5px] font-semibold">&nbsp;</label>
+            <label className="flex items-center gap-2 pt-2 text-[13px]">
+              <input type="checkbox" checked={form.auto_renewal} onChange={(e) => set('auto_renewal', e.target.checked)} className="h-4 w-4 accent-petrol" />
+              Auto-renews
+            </label>
+          </div>
+        </div>
+        <Field label="Services included (comma-separated)" value={form.services_included} onChange={(v) => set('services_included', v)} />
+        <label className="mb-1.5 block text-[12.5px] font-semibold">Contractual SLA terms</label>
+        <textarea
+          rows={2}
+          value={form.contract_sla_terms}
+          onChange={(e) => set('contract_sla_terms', e.target.value)}
+          placeholder="e.g. 4hr response, 99.9% uptime guarantee…"
+          className="field-input mb-3.5 resize-y"
+        />
       </fieldset>
 
       <fieldset>

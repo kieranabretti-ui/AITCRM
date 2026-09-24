@@ -299,6 +299,53 @@ add a Jira comment, apply a label, or write to the columns above.
 Anything of that kind is always a recommendation for a human, never
 something it does itself.
 
+### 7. Contract management, customer health score, and Sales (Phase 4)
+
+Three additions, all in the same run:
+
+**Apply the migrations** — SQL Editor, run
+[`005_contracts.sql`](./supabase/migrations/005_contracts.sql),
+[`006_health_score.sql`](./supabase/migrations/006_health_score.sql), and
+[`007_sales_pipeline.sql`](./supabase/migrations/007_sales_pipeline.sql)
+in full, in that order.
+
+**Contract management** — each client now carries its own contract
+terms (start/renewal date, notice period, annual value, services
+included, annual price increase %, auto-renewal, and free-text SLA
+terms) in the client drawer's new Contract section. The Dashboard gets
+a **Contract renewals due** panel — active clients within 90 days of
+`contract_renewal_date`, banded at 90/60/30 days and overdue, the same
+pattern as the existing review-due panel.
+
+**Customer health score** — a new scheduled function,
+`health-score.js` (daily, 6am UK time — needs Scheduled Functions on
+your Netlify plan, same as `sla-check`), scores every active client
+0-100 from six signals: rising ticket volume, SLA breaches, security
+incidents, backup failures, unresolved tickets, and contract renewal
+proximity. This is a **deterministic weighted formula**
+(`lib/healthScore.js`), not a per-client AI call — every input is an
+objective count, so a rules-based score is instant, free, and fully
+explainable: the client drawer shows exactly which factors deducted
+how many points, never a black-box number. Bands: 80+ Healthy, 60-79
+Watch, 40-59 At risk, under 40 Critical. The Dashboard's **At-risk
+clients** panel lists anything below Watch, worst first.
+
+**Sales pipeline with an AI assistant** — a new Sales page (nav: Sales)
+with a Kanban-style board across New → Qualified → Proposal sent →
+Negotiation → Won/Lost, backed by a `sales_opportunities` table (every
+opportunity belongs to a client record — a brand-new prospect is just
+a client created with status `lead`, so contact info lives in one
+place). Opening an opportunity gives you a **Draft with AI** button:
+pick a goal (initial outreach, follow-up, re-engagement, etc.) and
+`sales-draft.js` calls Claude to write a subject/body/key-points draft,
+grounded only in real data on the opportunity and A-IT's actual
+published pricing (it's instructed never to invent a discount, a
+timeline, or a fact about the prospect it hasn't been given). The
+draft is never sent automatically — there's no email-sending
+integration in this app, and outbound sales messages are exactly the
+kind of thing that stays a human's call. Copy it and send it from your
+own email client.
+
 ## Local development
 
 ```bash

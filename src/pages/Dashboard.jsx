@@ -3,9 +3,9 @@ import { useAuth } from '../context/AuthContext.jsx'
 import { fetchClients } from '../lib/clientsApi.js'
 import {
   TIERS, STATUSES, gbp, computeMrr, mrrDisplay, isMrrUnknown,
-  computeNextReviewDate, reviewUrgency, reviewDaysOut, fmtDate,
+  computeNextReviewDate, reviewUrgency, reviewDaysOut, renewalUrgency, renewalDaysOut, fmtDate,
 } from '../lib/pricing.js'
-import { TierBadge, StatusBadge, ReviewBadge, SlaPill } from '../components/Badges.jsx'
+import { TierBadge, StatusBadge, ReviewBadge, SlaPill, RenewalBadge, HealthScoreBadge } from '../components/Badges.jsx'
 import ClientDrawer from '../components/ClientDrawer.jsx'
 
 export default function Dashboard() {
@@ -58,6 +58,18 @@ export default function Dashboard() {
 
   const dueList = useMemo(
     () => clients.filter((c) => c.status === 'active' && reviewUrgency(c)).sort((a, b) => reviewDaysOut(a) - reviewDaysOut(b)),
+    [clients],
+  )
+
+  const renewalList = useMemo(
+    () => clients.filter((c) => c.status === 'active' && renewalUrgency(c)).sort((a, b) => renewalDaysOut(a) - renewalDaysOut(b)),
+    [clients],
+  )
+  const renewalOverdueCount = renewalList.filter((c) => renewalUrgency(c) === 'overdue').length
+
+  const atRiskList = useMemo(
+    () => clients.filter((c) => c.status === 'active' && c.health_score != null && c.health_score < 60)
+      .sort((a, b) => a.health_score - b.health_score),
     [clients],
   )
 
@@ -174,6 +186,65 @@ export default function Dashboard() {
         </section>
       )}
 
+      {/* Contract renewals due panel */}
+      {renewalList.length > 0 && (
+        <section className={`mb-6 overflow-hidden rounded-md border ${renewalOverdueCount > 0 ? 'border-status-churned' : 'border-status-onboarding'}`}>
+          <div className={`flex items-center justify-between px-4 py-2.5 ${renewalOverdueCount > 0 ? 'bg-status-churned/10' : 'bg-status-onboarding/10'}`}>
+            <h2 className={`text-[13px] font-bold ${renewalOverdueCount > 0 ? 'text-status-churned' : 'text-status-onboarding'}`}>
+              ⚠ Contract renewals due
+            </h2>
+            <span className="rounded-full bg-white px-2 font-mono text-[11px]">{renewalList.length}</span>
+          </div>
+          <div className="bg-white">
+            {renewalList.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setDrawer({ mode: 'view', client: c })}
+                className="flex w-full items-center gap-3 border-t border-stone px-4 py-2.5 text-left hover:bg-paper-dim"
+              >
+                <TierBadge tier={c.tier} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13.5px] font-semibold">{c.business_name || 'Untitled client'}</span>
+                  <span className="block text-[12px] text-slate">{c.contract_value_annual ? gbp(c.contract_value_annual) + '/yr' : c.contact_name}</span>
+                </span>
+                <RenewalBadge client={c} />
+                <span className="whitespace-nowrap text-[12px] text-slate">
+                  <b className="text-ink">{fmtDate(c.contract_renewal_date)}</b>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* At-risk clients (AI health score) panel */}
+      {atRiskList.length > 0 && (
+        <section className="mb-6 overflow-hidden rounded-md border border-status-churned">
+          <div className="flex items-center justify-between bg-status-churned/10 px-4 py-2.5">
+            <h2 className="text-[13px] font-bold text-status-churned">⚠ At-risk clients</h2>
+            <span className="rounded-full bg-white px-2 font-mono text-[11px]">{atRiskList.length}</span>
+          </div>
+          <div className="bg-white">
+            {atRiskList.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setDrawer({ mode: 'view', client: c })}
+                className="flex w-full items-center gap-3 border-t border-stone px-4 py-2.5 text-left hover:bg-paper-dim"
+              >
+                <TierBadge tier={c.tier} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13.5px] font-semibold">{c.business_name || 'Untitled client'}</span>
+                  <span className="block text-[12px] text-slate">{c.contact_name}</span>
+                </span>
+                <HealthScoreBadge score={c.health_score} label={c.health_score_label} />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <input
@@ -210,7 +281,7 @@ export default function Dashboard() {
             <table className="w-full border-collapse text-left">
               <thead>
                 <tr className="bg-paper-dim">
-                  {['Client', 'Tier', 'Devices', 'MRR', 'Status', 'Next review'].map((h, i) => (
+                  {['Client', 'Tier', 'Devices', 'MRR', 'Status', 'Health', 'Next review'].map((h, i) => (
                     <th key={h} className={`border-b border-stone px-3.5 py-3 font-mono text-[10.5px] uppercase tracking-wideish text-slate ${i === 2 ? 'text-center' : i === 3 ? 'text-right' : ''}`}>
                       {h}
                     </th>
@@ -219,7 +290,7 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {visible.length === 0 ? (
-                  <tr><td colSpan={6} className="p-6 text-center text-slate">No clients match these filters.</td></tr>
+                  <tr><td colSpan={7} className="p-6 text-center text-slate">No clients match these filters.</td></tr>
                 ) : visible.map((c) => (
                   <tr
                     key={c.id}
@@ -234,6 +305,7 @@ export default function Dashboard() {
                     <td className="px-3.5 py-3 text-center tabular-nums">{c.device_count || 0}</td>
                     <td className={`px-3.5 py-3 text-right tabular-nums ${isMrrUnknown(c) ? 'text-slate' : ''}`}>{mrrDisplay(c)}</td>
                     <td className="px-3.5 py-3"><StatusBadge status={c.status} /></td>
+                    <td className="px-3.5 py-3">{c.status === 'active' ? <HealthScoreBadge score={c.health_score} label={c.health_score_label} /> : null}</td>
                     <td className="px-3.5 py-3 text-slate">
                       {fmtDate(computeNextReviewDate(c)) || '—'} <ReviewBadge client={c} />
                     </td>

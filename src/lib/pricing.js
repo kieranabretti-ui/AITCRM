@@ -92,6 +92,31 @@ export function reviewUrgency(c) {
   return null
 }
 
+// Contract renewal warnings — same day-counting approach as the review
+// cadence above, but with three widening windows instead of one, per
+// spec: flag at 90/60/30 days out, then overdue past the renewal date
+// itself (relevant for an auto_renewal: false contract that's lapsed
+// without a new term being agreed).
+export function renewalDaysOut(c) {
+  if (!c?.contract_renewal_date) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const due = new Date(c.contract_renewal_date + 'T00:00:00')
+  if (isNaN(due.getTime())) return null
+  return Math.round((due.getTime() - today.getTime()) / 86400000)
+}
+
+export function renewalUrgency(c) {
+  if (!c || c.status !== 'active') return null
+  const days = renewalDaysOut(c)
+  if (days === null) return null
+  if (days < 0) return 'overdue'
+  if (days <= 30) return 'due-30'
+  if (days <= 60) return 'due-60'
+  if (days <= 90) return 'due-90'
+  return null
+}
+
 export function fmtDate(d) {
   if (!d) return ''
   const dt = new Date(d + 'T00:00:00')

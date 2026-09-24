@@ -1,4 +1,4 @@
-import { STATUSES, reviewUrgency } from '../lib/pricing.js'
+import { STATUSES, reviewUrgency, renewalUrgency } from '../lib/pricing.js'
 
 const TIER_CLASSES = {
   silver: 'bg-paper-dim text-slate',
@@ -131,6 +131,52 @@ export function EscalationBadge({ escalation }) {
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${ESCALATION_CLASSES[escalation] || ''}`}>
       {escalation}
+    </span>
+  )
+}
+
+const RENEWAL_LABELS = { 'due-90': '90 days', 'due-60': '60 days', 'due-30': '30 days', overdue: 'Overdue' }
+const RENEWAL_CLASSES = {
+  'due-90': 'bg-status-lead/10 text-status-lead',
+  'due-60': 'bg-status-onboarding/10 text-status-onboarding',
+  'due-30': 'bg-status-churned/10 text-status-churned',
+  overdue: 'bg-status-churned text-white',
+}
+
+export function RenewalBadge({ client }) {
+  const u = renewalUrgency(client)
+  if (!u) return null
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${RENEWAL_CLASSES[u]}`}>
+      {u === 'overdue' ? RENEWAL_LABELS[u] : `Renews in ${RENEWAL_LABELS[u]}`}
+    </span>
+  )
+}
+
+// Score bands: 80+ Healthy, 60-79 Watch, 40-59 At risk, <40 Critical —
+// matches lib/healthScore.js's own thresholds (kept here for display
+// only; the server owns the actual scoring).
+function healthBand(score) {
+  if (score == null) return null
+  if (score >= 80) return 'Healthy'
+  if (score >= 60) return 'Watch'
+  if (score >= 40) return 'At risk'
+  return 'Critical'
+}
+
+const HEALTH_CLASSES = {
+  Healthy: 'bg-status-active/10 text-status-active',
+  Watch: 'bg-status-lead/10 text-status-lead',
+  'At risk': 'bg-status-onboarding/10 text-status-onboarding',
+  Critical: 'bg-status-churned/10 text-status-churned',
+}
+
+export function HealthScoreBadge({ score, label }) {
+  if (score == null) return null
+  const band = label || healthBand(score)
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${HEALTH_CLASSES[band] || ''}`}>
+      <span className="font-mono tabular-nums">{score}</span> {band}
     </span>
   )
 }
