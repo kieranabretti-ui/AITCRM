@@ -346,6 +346,40 @@ integration in this app, and outbound sales messages are exactly the
 kind of thing that stays a human's call. Copy it and send it from your
 own email client.
 
+### 8. Clients page scoped to onboarding + active, with AI next-action suggestions
+
+**Apply the migration** — SQL Editor, run
+[`008_next_actions.sql`](./supabase/migrations/008_next_actions.sql) in full.
+
+**The Clients page (`/`) now shows only onboarding and active clients** —
+a lead isn't a client yet (it lives on the Sales page), and a paused or
+churned one has moved to its own **Inactive** page (`/clients/inactive`,
+nav: Inactive), so this list stays focused on who you're actively
+managing. Onboarding clients are always pinned above active ones,
+whatever sort order is selected — they're the smaller, more
+time-sensitive group. A client added directly here (rather than
+through a won opportunity) now defaults to status Onboarding instead
+of Lead.
+
+**Winning a Sales opportunity now promotes the client automatically** —
+moving an opportunity to the Won stage flips its linked client from
+Lead to Onboarding (and sets a start date, if none was set), so a won
+deal shows up on the Clients page without a manual edit. See
+`updateStage()` in `src/lib/salesApi.js`.
+
+**AI suggested next action** — the same daily scheduled function that
+computes the health score (`health-score.js`, now scoring onboarding
+clients too, not just active) also works out the single most useful
+next action for each one: "onboarding has been open 35 days, check
+in," "health score critical, schedule a review call," "contract
+renews in 12 days, start the conversation," and so on
+(`lib/nextAction.js`). Same design choice as the health score and for
+the same reasons — a deterministic rules engine over objective signals
+(status, days, score, renewal window), not a per-client LLM call, so
+it's instant, free, and its reasoning is always inspectable rather
+than an opaque suggestion. Shown in the client drawer and as a column
+on the Clients table.
+
 ## Local development
 
 ```bash

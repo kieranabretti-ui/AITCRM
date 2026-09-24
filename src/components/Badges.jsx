@@ -180,3 +180,22 @@ export function HealthScoreBadge({ score, label }) {
     </span>
   )
 }
+
+const NEXT_ACTION_DOT_CLASSES = {
+  high: 'bg-status-churned',
+  medium: 'bg-status-onboarding',
+  low: 'bg-slate',
+}
+
+// A priority dot + the suggestion text, not a pill — this reads as a
+// sentence in a table row or client view, not another badge competing
+// with severity/health for attention.
+export function NextActionNote({ action, priority }) {
+  if (!action) return null
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[12px] text-ink/80">
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${NEXT_ACTION_DOT_CLASSES[priority] || NEXT_ACTION_DOT_CLASSES.low}`} />
+      {action}
+    </span>
+  )
+}

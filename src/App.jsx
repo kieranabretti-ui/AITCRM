@@ -4,6 +4,7 @@ import AppShell from './components/AppShell.jsx'
 import Login from './pages/Login.jsx'
 import AcceptInvite from './pages/AcceptInvite.jsx'
 import Dashboard from './pages/Dashboard.jsx'
+import InactiveClients from './pages/InactiveClients.jsx'
 import Support from './pages/Support.jsx'
 import UnmatchedTickets from './pages/UnmatchedTickets.jsx'
 import ClosedTickets from './pages/ClosedTickets.jsx'
@@ -20,6 +21,7 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/clients/inactive" element={<InactiveClients />} />
           <Route path="/support" element={<Support />} />
           <Route path="/tickets/unmatched" element={<UnmatchedTickets />} />
           <Route path="/tickets/closed" element={<ClosedTickets />} />

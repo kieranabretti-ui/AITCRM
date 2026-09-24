@@ -25,6 +25,12 @@ export default function AppShell() {
               Clients
             </NavLink>
             <NavLink
+              to="/clients/inactive"
+              className={({ isActive }) => (isActive ? 'font-semibold text-petrol' : 'text-ink/70 hover:text-ink')}
+            >
+              Inactive
+            </NavLink>
+            <NavLink
               to="/support"
               className={({ isActive }) => (isActive ? 'font-semibold text-petrol' : 'text-ink/70 hover:text-ink')}
             >

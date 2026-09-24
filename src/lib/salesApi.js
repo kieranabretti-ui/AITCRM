@@ -59,6 +59,25 @@ export async function updateStage(id, stage, lostReason) {
   if (stage === 'lost') fields.lost_reason = lostReason || ''
   const { error } = await supabase.from('sales_opportunities').update(fields).eq('id', id)
   if (error) throw error
+
+  // Winning a deal is exactly the moment a prospect becomes a real
+  // client — promote them onto the Clients page (status: onboarding)
+  // rather than leaving them stuck as a lead until someone remembers
+  // to edit the client record by hand.
+  if (stage === 'won') {
+    const { data: opp, error: oppError } = await supabase
+      .from('sales_opportunities')
+      .select('client_id, clients(status, start_date)')
+      .eq('id', id)
+      .maybeSingle()
+    if (oppError) throw oppError
+    if (opp?.clients?.status === 'lead') {
+      const promoteFields = { status: 'onboarding' }
+      if (!opp.clients.start_date) promoteFields.start_date = new Date().toISOString().slice(0, 10)
+      const { error: promoteError } = await supabase.from('clients').update(promoteFields).eq('id', opp.client_id)
+      if (promoteError) throw promoteError
+    }
+  }
 }
 
 export async function deleteOpportunity(id) {

@@ -4,7 +4,7 @@ import {
   computeNextReviewDate, reviewCadenceDays, fmtDate, fmtDateTime, fmtBytes, tierName, leadSourceLabel,
   computeAnnualValue, annualValueDisplay,
 } from '../lib/pricing.js'
-import { TierBadge, StatusBadge, ReviewBadge, SeverityBadge, SlaStateBadge, RenewalBadge, HealthScoreBadge } from './Badges.jsx'
+import { TierBadge, StatusBadge, ReviewBadge, SeverityBadge, SlaStateBadge, RenewalBadge, HealthScoreBadge, NextActionNote } from './Badges.jsx'
 import {
   createClient, updateClient, deleteClient, addActivity, removeActivity,
   uploadContract, removeContract, contractUrl,
@@ -15,7 +15,7 @@ import TicketDrawer from './TicketDrawer.jsx'
 const emptyForm = {
   business_name: '', contact_name: '', contact_email: '', contact_phone: '',
   secondary_contact_name: '', secondary_contact_phone: '', site_address: '',
-  tier: 'gold', device_count: '', sla_addon: false, status: 'lead',
+  tier: 'gold', device_count: '', sla_addon: false, status: 'onboarding',
   start_date: '', direct_debit: false, platform: '', on_site_server: false,
   lead_source: '', lead_source_detail: '', notes: '',
   contract_start_date: '', contract_renewal_date: '', notice_period_days: '',
@@ -396,6 +396,13 @@ function ViewBody({
           </div>
         )}
       </div>
+
+      {(c.status === 'onboarding' || c.status === 'active') && c.next_action && (
+        <div className="mt-5 border-t border-stone pt-4">
+          <div className="mb-2 font-mono text-[10px] uppercase tracking-wideish text-slate">AI suggested next action</div>
+          <NextActionNote action={c.next_action} priority={c.next_action_priority} />
+        </div>
+      )}
 
       {c.status === 'active' && c.health_score != null && (
         <div className="mt-5 border-t border-stone pt-4">

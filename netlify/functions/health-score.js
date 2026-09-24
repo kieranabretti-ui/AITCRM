@@ -1,14 +1,18 @@
-// Scheduled function (see netlify.toml) — recomputes every active
-// client's health score once a day from ticket history, SLA breaches,
-// and contract renewal proximity. See lib/healthScore.js for the
-// (deterministic, explainable) scoring formula itself; this file is
-// just the data-gathering around it.
+// Scheduled function (see netlify.toml) — recomputes every onboarding
+// or active client's health score and AI-suggested next action once a
+// day, from ticket history, SLA breaches, and contract/review
+// proximity. See lib/healthScore.js and lib/nextAction.js for the
+// (deterministic, explainable) logic itself; this file is just the
+// data-gathering both draw on, gathered once per client and reused for
+// both so it isn't queried twice.
 const { createClient } = require('@supabase/supabase-js')
 const { computeHealthScore } = require('./lib/healthScore.js')
+const { computeNextAction } = require('./lib/nextAction.js')
 
-// Mirrors src/lib/pricing.js's renewalUrgency — reimplemented here
-// rather than imported since the frontend is an ES module and this
-// function is CommonJS; keep the two in sync if the thresholds change.
+// Mirrors src/lib/pricing.js's renewalUrgency/reviewUrgency —
+// reimplemented here rather than imported since the frontend is an ES
+// module and this function is CommonJS; keep these in sync if the
+// thresholds change.
 function renewalUrgency(client) {
   if (!client?.contract_renewal_date) return null
   const today = new Date()
@@ -20,6 +24,25 @@ function renewalUrgency(client) {
   if (days <= 30) return 'due-30'
   if (days <= 60) return 'due-60'
   if (days <= 90) return 'due-90'
+  return null
+}
+
+function reviewCadenceDays(tier) {
+  return tier === 'silver' ? 30 : 91
+}
+
+function reviewUrgency(client) {
+  if (client?.status !== 'active') return null
+  const baseline = client.last_reviewed_date || client.start_date
+  if (!baseline) return 'unknown'
+  const due = new Date(baseline + 'T00:00:00')
+  if (isNaN(due.getTime())) return 'unknown'
+  due.setDate(due.getDate() + reviewCadenceDays(client.tier))
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days = Math.round((due.getTime() - today.getTime()) / 86400000)
+  if (days < 0) return 'overdue'
+  if (days <= 30) return 'due-soon'
   return null
 }
 
@@ -44,10 +67,10 @@ exports.handler = async () => {
 
   const { data: clients, error } = await admin
     .from('clients')
-    .select('id, contract_renewal_date')
-    .eq('status', 'active')
+    .select('id, status, tier, start_date, last_reviewed_date, contract_renewal_date')
+    .in('status', ['active', 'onboarding'])
   if (error) {
-    console.error('[health-score] could not load active clients:', error.message)
+    console.error('[health-score] could not load onboarding/active clients:', error.message)
     return { statusCode: 500 }
   }
 
@@ -66,16 +89,30 @@ exports.handler = async () => {
         countTickets(admin, client.id, [['is', 'resolved_at', null]]),
       ])
 
-      const result = computeHealthScore({
+      const renewal = renewalUrgency(client)
+
+      const healthResult = computeHealthScore({
         ticketsLast30, ticketsPrev30, slaBreaches90, securityIncidents90, backupFailures90,
-        unresolvedCount, renewalUrgency: renewalUrgency(client),
+        unresolvedCount, renewalUrgency: renewal,
+      })
+
+      const nextActionResult = computeNextAction({
+        status: client.status,
+        startDate: client.start_date,
+        healthScore: healthResult.score,
+        renewalUrgency: renewal,
+        unresolvedCount,
+        reviewUrgency: reviewUrgency(client),
       })
 
       const { error: updateError } = await admin.from('clients').update({
-        health_score: result.score,
-        health_score_label: result.label,
-        health_score_factors: result.factors,
+        health_score: healthResult.score,
+        health_score_label: healthResult.label,
+        health_score_factors: healthResult.factors,
         health_score_computed_at: new Date().toISOString(),
+        next_action: nextActionResult.action,
+        next_action_priority: nextActionResult.priority,
+        next_action_computed_at: new Date().toISOString(),
       }).eq('id', client.id)
       if (updateError) throw updateError
 
@@ -87,6 +124,6 @@ exports.handler = async () => {
     }
   }
 
-  console.log(`[health-score] scored ${scored}/${(clients || []).length} active clients`)
+  console.log(`[health-score] scored ${scored}/${(clients || []).length} onboarding/active clients`)
   return { statusCode: 200, body: JSON.stringify({ scored, total: (clients || []).length }) }
 }

@@ -513,3 +513,14 @@ create policy "opportunities updatable by team members"
 create policy "opportunities deletable by team members"
   on public.sales_opportunities for delete to authenticated
   using (public.is_team_member());
+
+-- ---------------------------------------------------------------
+-- AI next-action suggestions (Phase 4) — see
+-- supabase/migrations/008_next_actions.sql for the standalone version.
+-- ---------------------------------------------------------------
+
+alter table public.clients
+  add column next_action text,
+  add column next_action_priority text
+    check (next_action_priority is null or next_action_priority in ('low', 'medium', 'high')),
+  add column next_action_computed_at timestamptz;

@@ -5,7 +5,7 @@ import {
   TIERS, STATUSES, gbp, computeMrr, mrrDisplay, isMrrUnknown,
   computeNextReviewDate, reviewUrgency, reviewDaysOut, renewalUrgency, renewalDaysOut, fmtDate,
 } from '../lib/pricing.js'
-import { TierBadge, StatusBadge, ReviewBadge, SlaPill, RenewalBadge, HealthScoreBadge } from '../components/Badges.jsx'
+import { TierBadge, StatusBadge, ReviewBadge, SlaPill, RenewalBadge, HealthScoreBadge, NextActionNote } from '../components/Badges.jsx'
 import ClientDrawer from '../components/ClientDrawer.jsx'
 
 export default function Dashboard() {
@@ -73,9 +73,14 @@ export default function Dashboard() {
     [clients],
   )
 
+  // The Clients page is scoped to the two "live" stages — a lead isn't
+  // a client yet (see Sales), and a paused/churned one has moved off
+  // to its own page — so this list is never the full clients table.
+  const pageClients = useMemo(() => clients.filter((c) => c.status === 'onboarding' || c.status === 'active'), [clients])
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    let list = clients.filter((c) => {
+    let list = pageClients.filter((c) => {
       if (statusFilter !== 'all' && c.status !== statusFilter) return false
       if (tierFilter !== 'all' && c.tier !== tierFilter) return false
       if (renewalFilter && !reviewUrgency(c)) return false
@@ -86,13 +91,17 @@ export default function Dashboard() {
       return true
     })
     list = list.slice().sort((a, b) => {
+      // Onboarding is pinned above active regardless of the chosen
+      // sort — it's the smaller, more time-sensitive group and
+      // shouldn't get buried under an alphabetical or MRR sort.
+      if (a.status !== b.status) return a.status === 'onboarding' ? -1 : 1
       if (sort === 'mrr') return computeMrr(b) - computeMrr(a)
       if (sort === 'review') return reviewDaysOut(a) - reviewDaysOut(b)
       if (sort === 'recent') return new Date(b.created_at) - new Date(a.created_at)
       return (a.business_name || '').localeCompare(b.business_name || '')
     })
     return list
-  }, [clients, search, statusFilter, tierFilter, renewalFilter, sort])
+  }, [pageClients, search, statusFilter, tierFilter, renewalFilter, sort])
 
   if (loading) return <div className="py-24 text-center text-slate">Loading clients…</div>
 
@@ -254,7 +263,12 @@ export default function Dashboard() {
           onChange={(e) => setSearch(e.target.value)}
           className="field-input max-w-[260px] flex-1"
         />
-        <Chips value={statusFilter} onChange={setStatusFilter} options={[{ id: 'all', label: 'All statuses' }, ...STATUSES]} keyField="statusFilter" />
+        <Chips
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={[{ id: 'all', label: 'All statuses' }, ...STATUSES.filter((s) => s.id === 'onboarding' || s.id === 'active')]}
+          keyField="statusFilter"
+        />
         <Chips value={tierFilter} onChange={setTierFilter} options={[{ id: 'all', label: 'All tiers' }, ...TIERS.map((t) => ({ id: t.id, label: t.name }))]} />
         <select value={sort} onChange={(e) => setSort(e.target.value)} className="field-input w-auto">
           <option value="name">Sort: Name</option>
@@ -265,14 +279,15 @@ export default function Dashboard() {
       </div>
 
       {/* Table (desktop) */}
-      {clients.length === 0 ? (
+      {pageClients.length === 0 ? (
         <div className="card p-16 text-center">
-          <h2 className="font-display text-lg font-semibold">No clients yet</h2>
+          <h2 className="font-display text-lg font-semibold">No onboarding or active clients yet</h2>
           <p className="mx-auto mt-2 max-w-[40ch] text-slate">
-            Add your first client to start tracking packages, SLAs, endpoints and contacts in one place.
+            New relationships start on the Sales page — once a deal is won it lands here automatically. Or add one
+            directly if it doesn't need to go through the pipeline.
           </p>
           <button className="btn btn-primary mt-5" onClick={() => setDrawer({ mode: 'add', client: null })}>
-            Add your first client
+            Add a client
           </button>
         </div>
       ) : (
@@ -281,7 +296,7 @@ export default function Dashboard() {
             <table className="w-full border-collapse text-left">
               <thead>
                 <tr className="bg-paper-dim">
-                  {['Client', 'Tier', 'Devices', 'MRR', 'Status', 'Health', 'Next review'].map((h, i) => (
+                  {['Client', 'Tier', 'Devices', 'MRR', 'Status', 'Health / next action', 'Next review'].map((h, i) => (
                     <th key={h} className={`border-b border-stone px-3.5 py-3 font-mono text-[10.5px] uppercase tracking-wideish text-slate ${i === 2 ? 'text-center' : i === 3 ? 'text-right' : ''}`}>
                       {h}
                     </th>
@@ -305,7 +320,12 @@ export default function Dashboard() {
                     <td className="px-3.5 py-3 text-center tabular-nums">{c.device_count || 0}</td>
                     <td className={`px-3.5 py-3 text-right tabular-nums ${isMrrUnknown(c) ? 'text-slate' : ''}`}>{mrrDisplay(c)}</td>
                     <td className="px-3.5 py-3"><StatusBadge status={c.status} /></td>
-                    <td className="px-3.5 py-3">{c.status === 'active' ? <HealthScoreBadge score={c.health_score} label={c.health_score_label} /> : null}</td>
+                    <td className="max-w-[220px] px-3.5 py-3">
+                      <div className="flex flex-col items-start gap-1">
+                        {c.status === 'active' && <HealthScoreBadge score={c.health_score} label={c.health_score_label} />}
+                        <NextActionNote action={c.next_action} priority={c.next_action_priority} />
+                      </div>
+                    </td>
                     <td className="px-3.5 py-3 text-slate">
                       {fmtDate(computeNextReviewDate(c)) || '—'} <ReviewBadge client={c} />
                     </td>
@@ -330,6 +350,7 @@ export default function Dashboard() {
                   </div>
                   <StatusBadge status={c.status} />
                 </div>
+                {c.next_action && <div className="mt-2"><NextActionNote action={c.next_action} priority={c.next_action_priority} /></div>}
                 <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1.5 text-[12.5px] text-slate">
                   <span><TierBadge tier={c.tier} /> <SlaPill show={c.sla_addon} /></span>
                   <span><b className="text-ink">{c.device_count || 0}</b> devices</span>
