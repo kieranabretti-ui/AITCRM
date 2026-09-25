@@ -15,12 +15,20 @@
 // in case that notification is ever added back — same secret either
 // way, so there's nothing extra to configure for it to keep working.
 //
-// This is a genuinely public endpoint (called server-to-server or by
-// Netlify's own infrastructure, never a signed-in team member), so it
-// can't use the normal Supabase-session auth every other write in this
-// app requires — RLS only allows authenticated team members to insert
-// into clients/sales_opportunities. Auth here is a shared secret
-// instead, same pattern as jira-webhook.js.
+// This is a genuinely public endpoint (called server-to-server, never
+// a signed-in team member), so it can't use the normal Supabase-
+// session auth every other write in this app requires — RLS only
+// allows authenticated team members to insert into
+// clients/sales_opportunities. Auth here is a shared secret instead,
+// same pattern as jira-webhook.js.
+//
+// Every request that reaches this function — including a bad secret,
+// an unparsable body, or a payload that doesn't turn into a lead —
+// gets one row in form_submissions (migration 011). That's what the
+// CRM's "Form Submissions" page reads: whether a landing-page
+// submission isn't reaching the CRM is now visible right there,
+// instead of only inferrable from Netlify's own function logs, which
+// aren't reachable from inside this app.
 //
 // Required environment variables (Netlify: Site configuration ->
 // Environment variables — never VITE_-prefixed):
@@ -61,6 +69,17 @@ function buildLeadNote(data) {
   return lines.join('\n')
 }
 
+// Best-effort audit trail — a logging failure here must never affect
+// the real response to the caller (the aitmsp relay), so this always
+// swallows its own errors rather than throwing.
+async function recordSubmission(admin, fields) {
+  try {
+    await admin.from('form_submissions').insert({ source: FORM_NAME, ...fields })
+  } catch (err) {
+    console.error('[dorset-lead-webhook] could not record submission:', err.message)
+  }
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' }
@@ -71,19 +90,28 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: 'Server is not configured (missing env vars).' }) }
   }
 
-  const providedSecret = event.headers['x-webhook-secret'] || new URLSearchParams(event.queryStringParameters || {}).get('secret')
-  if (!timingSafeEqual(providedSecret || '', DORSET_LEAD_WEBHOOK_SECRET)) {
-    return { statusCode: 401, body: JSON.stringify({ error: 'Invalid webhook secret.' }) }
-  }
+  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
 
   let body
   try {
     body = JSON.parse(event.body || '{}')
   } catch {
+    await recordSubmission(admin, {
+      raw_payload: { _unparsable_body: (event.body || '').slice(0, 2000) },
+      status: 'error',
+      status_detail: 'Invalid JSON body.',
+    })
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body.' }) }
   }
 
   const { submission, data } = extractLeadData(body)
+  const submittedFields = {
+    submitted_name: (data.name || '').trim(),
+    submitted_email: (data.email || '').trim(),
+    submitted_company: (data.company || '').trim(),
+  }
 
   // Temporary diagnostic — set DEBUG_WEBHOOK=1 in Netlify while
   // confirming this is wired up correctly, so a payload-shape mismatch
@@ -98,7 +126,29 @@ exports.handler = async (event) => {
     }))
   }
 
+  const providedSecret = event.headers['x-webhook-secret'] || new URLSearchParams(event.queryStringParameters || {}).get('secret')
+  if (!timingSafeEqual(providedSecret || '', DORSET_LEAD_WEBHOOK_SECRET)) {
+    // Recorded, not just rejected — a secret mismatch between the
+    // aitmsp and CRM sites is one of the most likely reasons real
+    // submissions never became leads, and this is the only way to
+    // actually see that's what's happening rather than guess. Never
+    // echoes the secret itself anywhere.
+    await recordSubmission(admin, {
+      raw_payload: body,
+      status: 'error',
+      status_detail: 'Invalid or missing webhook secret — check DORSET_LEAD_WEBHOOK_SECRET matches on both sites.',
+      ...submittedFields,
+    })
+    return { statusCode: 401, body: JSON.stringify({ error: 'Invalid webhook secret.' }) }
+  }
+
   if (submission?.form_name && submission.form_name !== FORM_NAME) {
+    await recordSubmission(admin, {
+      raw_payload: body,
+      status: 'skipped',
+      status_detail: `Not the ${FORM_NAME} form.`,
+      ...submittedFields,
+    })
     return { statusCode: 200, body: JSON.stringify({ ok: true, skipped: `not the ${FORM_NAME} form` }) }
   }
 
@@ -106,16 +156,16 @@ exports.handler = async (event) => {
   // this form) already keeps flagged spam out of notifications, but a
   // submission missing the basics isn't a lead this app can do
   // anything with — skip rather than create an empty client record.
-  const email = (data.email || '').trim()
-  const name = (data.name || '').trim()
-  const company = (data.company || '').trim()
+  const { submitted_email: email, submitted_name: name, submitted_company: company } = submittedFields
   if (!email || (!name && !company)) {
+    await recordSubmission(admin, {
+      raw_payload: body,
+      status: 'skipped',
+      status_detail: 'Missing name/company or email.',
+      ...submittedFields,
+    })
     return { statusCode: 200, body: JSON.stringify({ ok: true, skipped: 'missing name/company or email' }) }
   }
-
-  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
 
   try {
     const { data: client, error: clientError } = await admin
@@ -139,12 +189,21 @@ exports.handler = async (event) => {
       .insert({ client_id: client.id, stage: 'new', notes: buildLeadNote(data) })
     if (oppError) throw oppError
 
+    await recordSubmission(admin, {
+      raw_payload: body,
+      status: 'lead_created',
+      client_id: client.id,
+      ...submittedFields,
+    })
     return { statusCode: 200, body: JSON.stringify({ ok: true, clientId: client.id }) }
   } catch (err) {
-    // 500 so Netlify's own delivery retries resend this later — there
-    // is no separate queue, the retry IS the retry here (same
-    // reasoning as jira-webhook.js).
     console.error('[dorset-lead-webhook] failed to create lead:', err.message)
-    return { statusCode: 500, body: JSON.stringify({ error: 'Could not create the lead, will retry.' }) }
+    await recordSubmission(admin, {
+      raw_payload: body,
+      status: 'error',
+      status_detail: err.message,
+      ...submittedFields,
+    })
+    return { statusCode: 500, body: JSON.stringify({ error: 'Could not create the lead.' }) }
   }
 }

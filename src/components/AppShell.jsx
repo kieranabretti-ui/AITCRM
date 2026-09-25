@@ -42,6 +42,12 @@ export default function AppShell() {
             >
               Sales
             </NavLink>
+            <NavLink
+              to="/form-submissions"
+              className={({ isActive }) => (isActive ? 'font-semibold text-petrol' : 'text-ink/70 hover:text-ink')}
+            >
+              Form Submissions
+            </NavLink>
             {isOwner && (
               <NavLink
                 to="/team"

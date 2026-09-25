@@ -32,6 +32,25 @@ export function StatusBadge({ status }) {
   )
 }
 
+const FORM_SUBMISSION_CLASSES = {
+  lead_created: 'bg-status-active/10 text-status-active',
+  skipped: 'bg-status-paused/10 text-status-paused',
+  error: 'bg-status-churned/10 text-status-churned',
+}
+const FORM_SUBMISSION_LABELS = {
+  lead_created: 'Lead created',
+  skipped: 'Skipped',
+  error: 'Error',
+}
+
+export function FormSubmissionStatusBadge({ status }) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold ${FORM_SUBMISSION_CLASSES[status] || ''}`}>
+      {FORM_SUBMISSION_LABELS[status] || status}
+    </span>
+  )
+}
+
 export function ReviewBadge({ client }) {
   const u = reviewUrgency(client)
   if (u === 'overdue')

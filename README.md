@@ -524,8 +524,10 @@ landing page form into this CRM: every real submission becomes a
 client (`status: lead`, `lead_source: google_ads`) plus a matching
 `sales_opportunities` row (`stage: new`), so it shows up on the Sales
 pipeline exactly like a lead added manually or via the Companies House
-finder. No new tables or migration needed — it writes through the
-existing `clients`/`sales_opportunities` schema.
+finder. It writes through the existing `clients`/`sales_opportunities`
+schema for that — the one migration this section does need
+(`011_form_submissions.sql`) is for the audit trail described below,
+not the lead itself.
 
 This has to be a genuinely public endpoint (called server-to-server,
 not by a signed-in team member), so it can't use the normal
@@ -568,23 +570,36 @@ a belt-and-braces backup — would still work with no changes here.
    even though this side is fully configured.
 
 **Known limitation:** there's no dedup table for this (unlike the Jira
-webhook, which has one keyed by Jira's own event id) — a retried
-delivery (which only happens if this function returns a 5xx) could
-create a duplicate lead. Low-likelihood and low-cost if it does
-happen — a duplicate is just an extra card on the Sales board to merge
-or delete — so this was left out of scope for now rather than adding a
-table for it.
+webhook, which has one keyed by Jira's own event id) — if the old
+Netlify Forms webhook notification is ever re-added as a
+belt-and-braces backup alongside the relay, the same submission could
+arrive twice and create a duplicate lead. Low-likelihood and low-cost
+if it does happen — a duplicate is just an extra card on the Sales
+board to merge or delete — so this was left out of scope for now
+rather than adding a table for it.
 
-If leads aren't showing up after setup, set `DEBUG_WEBHOOK=1` on this
-function in Netlify and check its logs (Netlify → this site →
-Functions → dorset-lead-webhook → Logs) next time the form is
-submitted — it logs the payload's shape (field names only, never lead
-content) so a mismatch between what's actually sent and what this
-function expects shows up immediately instead of silently dropping
-submissions. Also worth checking aitmsp's own `relay-lead` function
-logs (Netlify → aitmsp site → Functions → relay-lead → Logs) — a
-missing/mismatched secret or a network failure reaching this CRM
-site would show up there instead.
+**Every request this function receives is recorded — the "Form
+Submissions" tab (nav) is the first place to look if a landing-page
+lead doesn't show up.** Apply
+[`011_form_submissions.sql`](./supabase/migrations/011_form_submissions.sql)
+(SQL Editor, once) and every hit to this endpoint gets one row there:
+a successful lead, a skipped one (wrong form, missing basics), or an
+error — including an auth failure, which is exactly what shows up if
+`DORSET_LEAD_WEBHOOK_SECRET` doesn't match between the two sites. This
+turns "nothing arrived" from something you can only infer into
+something you can actually see, without needing access to Netlify's
+own function logs at all.
+
+If the Form Submissions tab shows nothing whatsoever after a real
+submission (not even an error row), the request isn't reaching this
+function — check aitmsp's own `relay-lead` function logs (Netlify →
+aitmsp site → Functions → relay-lead → Logs) for a network failure
+reaching this CRM site, or confirm the aitmsp site was actually
+redeployed after `relay-lead.js` was added. Setting `DEBUG_WEBHOOK=1`
+on this function and checking its own logs (Netlify → this site →
+Functions → dorset-lead-webhook → Logs) is still there as a deeper
+fallback, logging the payload's shape (field names only, never lead
+content).
 
 ### 14. Sending AI-drafted outreach emails (`send-outreach-email.js`)
 
