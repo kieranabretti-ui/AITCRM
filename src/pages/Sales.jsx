@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { fetchOpportunities, createOpportunity, createOpportunityForNewLead } from '../lib/salesApi.js'
 import { fetchClients } from '../lib/clientsApi.js'
-import { STAGES } from '../lib/sales.js'
-import { gbp, fmtDate } from '../lib/pricing.js'
+import { STAGES, computeLastAction } from '../lib/sales.js'
+import { gbp, fmtDate, fmtDateTime } from '../lib/pricing.js'
 import { TierBadge } from '../components/Badges.jsx'
 import OpportunityDrawer from '../components/OpportunityDrawer.jsx'
 import LeadFinderPanel from '../components/LeadFinderPanel.jsx'
@@ -80,25 +80,43 @@ export default function Sales() {
                   <span className="rounded-full bg-paper-dim px-2 font-mono text-[11px]">{rows.length}</span>
                 </div>
                 <div className="flex flex-col gap-2">
-                  {rows.map((o) => (
-                    <button
-                      key={o.id}
-                      type="button"
-                      onClick={() => setOpenId(o.id)}
-                      className="card p-3 text-left hover:border-petrol"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="min-w-0 truncate text-[13px] font-semibold">{o.clients?.business_name || 'Untitled prospect'}</span>
-                        <TierBadge tier={o.clients?.tier} />
-                      </div>
-                      {o.clients?.contact_name && <div className="mt-0.5 truncate text-[11.5px] text-slate">{o.clients.contact_name}</div>}
-                      <div className="mt-2 flex items-center justify-between text-[12px]">
-                        <span className="font-semibold text-petrol-dark">{o.estimated_value_annual ? gbp(o.estimated_value_annual) : '—'}</span>
-                        {o.expected_close_date && <span className="text-slate">{fmtDate(o.expected_close_date)}</span>}
-                      </div>
-                      {o.ai_draft_message && <div className="mt-1.5 text-[10.5px] text-petrol">AI draft ready</div>}
-                    </button>
-                  ))}
+                  {rows.map((o) => {
+                    const lastAction = computeLastAction(o)
+                    return (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() => setOpenId(o.id)}
+                        className="card p-3 text-left hover:border-petrol"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="min-w-0 truncate text-[13px] font-semibold">{o.clients?.business_name || 'Untitled prospect'}</span>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {o.outreach_sent_at && (
+                              <span
+                                className="rounded-full bg-petrol/10 px-1.5 py-0.5 text-[10px] font-semibold text-petrol"
+                                title={`Outreach email sent ${fmtDateTime(o.outreach_sent_at)}`}
+                              >
+                                ✉ Sent
+                              </span>
+                            )}
+                            <TierBadge tier={o.clients?.tier} />
+                          </div>
+                        </div>
+                        {o.clients?.contact_name && <div className="mt-0.5 truncate text-[11.5px] text-slate">{o.clients.contact_name}</div>}
+                        <div className="mt-2 flex items-center justify-between text-[12px]">
+                          <span className="font-semibold text-petrol-dark">{o.estimated_value_annual ? gbp(o.estimated_value_annual) : '—'}</span>
+                          {o.expected_close_date && <span className="text-slate">{fmtDate(o.expected_close_date)}</span>}
+                        </div>
+                        {o.ai_draft_message && <div className="mt-1.5 text-[10.5px] text-petrol">AI draft ready</div>}
+                        {lastAction && (
+                          <div className="mt-1.5 truncate text-[10.5px] text-slate" title={lastAction.label}>
+                            {lastAction.label} · {fmtDateTime(lastAction.at)}
+                          </div>
+                        )}
+                      </button>
+                    )
+                  })}
                   {rows.length === 0 && <div className="rounded-md border border-dashed border-stone p-3 text-center text-[11.5px] text-slate">Empty</div>}
                 </div>
                 {value > 0 && <div className="mt-2 px-1 text-[11px] text-slate">{gbp(value)} total</div>}

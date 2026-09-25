@@ -2,11 +2,14 @@ import { supabase } from './supabase.js'
 
 // Every opportunity is embedded with its client's basics (business
 // name, tier, status) so the Sales board never needs a second round
-// trip just to show whose deal it is.
+// trip just to show whose deal it is. Also embeds the client's
+// activity log — used to compute each card's "last action" summary
+// (see computeLastAction() in lib/sales.js) so that's visible on the
+// board itself, not just after opening the drawer.
 export async function fetchOpportunities() {
   const { data, error } = await supabase
     .from('sales_opportunities')
-    .select('*, clients(id, business_name, contact_name, contact_email, tier, status, device_count)')
+    .select('*, clients(id, business_name, contact_name, contact_email, tier, status, device_count, client_activity(text, created_at))')
     .order('updated_at', { ascending: false })
   if (error) throw error
   return data
