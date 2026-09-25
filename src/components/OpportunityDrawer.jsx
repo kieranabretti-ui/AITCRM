@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { fetchOpportunity, updateOpportunity, updateStage, deleteOpportunity, requestSalesDraft, sendOutreachEmail } from '../lib/salesApi.js'
+import { fetchOpportunity, updateOpportunity, updateStage, deleteOpportunity, requestSalesDraft, sendOutreachEmail, markReplied } from '../lib/salesApi.js'
 import { updateClient } from '../lib/clientsApi.js'
 import { findContactInfo } from '../lib/contactFinder.js'
-import { STAGES, DRAFT_GOALS } from '../lib/sales.js'
+import { STAGES, DRAFT_GOALS, isFollowUpDue } from '../lib/sales.js'
 import { fmtDateTime } from '../lib/pricing.js'
 import { TierBadge } from './Badges.jsx'
 
@@ -41,6 +41,10 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
     setDraftSubject(o.ai_draft_message?.subject || '')
     setDraftBody(o.ai_draft_message?.body || '')
     setSendToEmail(o.clients?.contact_email || '')
+    // Nudge toward the right draft goal when this is exactly the
+    // situation "Follow-up — no reply yet" is for — doesn't overwrite
+    // a choice the user's already made, only the initial load.
+    if (isFollowUpDue(o)) setGoal('no_reply_followup')
   }
 
   function load() {
@@ -61,7 +65,7 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
   // outreach_sent_subject/body below record).
   function refreshAfterSend() {
     fetchOpportunity(opportunityId)
-      .then((o) => setOpp((prev) => ({ ...prev, clients: o.clients, outreach_sent_at: o.outreach_sent_at, outreach_sent_to: o.outreach_sent_to, outreach_sent_subject: o.outreach_sent_subject, outreach_sent_body: o.outreach_sent_body })))
+      .then((o) => setOpp((prev) => ({ ...prev, clients: o.clients, outreach_sent_at: o.outreach_sent_at, outreach_sent_to: o.outreach_sent_to, outreach_sent_subject: o.outreach_sent_subject, outreach_sent_body: o.outreach_sent_body, replied_at: o.replied_at })))
       .catch(() => {})
   }
 
@@ -159,6 +163,18 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
       setError(err.message)
     } finally {
       setSending(false)
+    }
+  }
+
+  async function handleToggleReplied(checked) {
+    const previous = opp.replied_at
+    setOpp((o) => ({ ...o, replied_at: checked ? new Date().toISOString() : null }))
+    try {
+      await markReplied(opportunityId, checked)
+      onChanged?.()
+    } catch (err) {
+      setOpp((o) => ({ ...o, replied_at: previous }))
+      setError(err.message)
     }
   }
 
@@ -351,6 +367,33 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
                 )}
                 {opp.outreach_sent_at && (
                   <p className="mt-1 text-[10.5px] font-semibold text-petrol">Sent to {opp.outreach_sent_to} on {fmtDateTime(opp.outreach_sent_at)}</p>
+                )}
+              </div>
+            )}
+
+            {/* Independent of whether a draft is currently shown above —
+                this reflects whether THIS lead has ever been emailed,
+                which can be true even with no draft sitting in the box
+                (e.g. straight after a page reload before re-drafting). */}
+            {opp.outreach_sent_at && (
+              <div className="mt-3.5 rounded-[6px] border border-stone bg-paper-dim p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 text-[12px]">
+                    <input
+                      type="checkbox"
+                      checked={!!opp.replied_at}
+                      onChange={(e) => handleToggleReplied(e.target.checked)}
+                    />
+                    They&rsquo;ve replied — stop follow-up reminders
+                  </label>
+                  {isFollowUpDue(opp) && (
+                    <span className="shrink-0 rounded-full bg-brass/15 px-2 py-0.5 text-[10px] font-semibold text-brass-dark">
+                      Follow-up due
+                    </span>
+                  )}
+                </div>
+                {opp.replied_at && (
+                  <p className="mt-1.5 text-[10.5px] text-slate">Marked as replied {fmtDateTime(opp.replied_at)} — untick to bring back into the follow-up cadence.</p>
                 )}
               </div>
             )}

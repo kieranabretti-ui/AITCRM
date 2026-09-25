@@ -94,6 +94,10 @@ exports.handler = async (event) => {
     outreach_sent_to: client.contact_email,
     outreach_sent_subject: subject,
     outreach_sent_body: body,
+    // A fresh send starts a fresh follow-up cadence — clear any
+    // earlier "they've replied" mark, which was about a previous
+    // email, not this one. See isFollowUpDue() in lib/sales.js.
+    replied_at: null,
     updated_at: sentAt,
   }).eq('id', opportunityId)
   if (updateError) {

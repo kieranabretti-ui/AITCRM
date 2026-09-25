@@ -67,3 +67,20 @@ export function computeLastAction(opportunity) {
   if (!candidates.length) return null
   return candidates.reduce((latest, c) => (new Date(c.at) > new Date(latest.at) ? c : latest))
 }
+
+// How long to wait, with no reply marked, before flagging an
+// opportunity as due a follow-up. A flag only — see isFollowUpDue().
+export const FOLLOW_UP_DUE_DAYS = 5
+
+// True when an opportunity has been emailed, nobody's ticked "They've
+// replied," it isn't already won or lost, and enough time has passed
+// since the last send. This never sends anything itself — it's what
+// the Sales board's "Follow-up due" badge and the opportunity
+// drawer's reminder both read, to surface which leads need a human
+// to look at them again, without anything happening on its own.
+export function isFollowUpDue(opportunity) {
+  if (!opportunity.outreach_sent_at || opportunity.replied_at) return false
+  if (opportunity.stage === 'won' || opportunity.stage === 'lost') return false
+  const dueAt = new Date(opportunity.outreach_sent_at).getTime() + FOLLOW_UP_DUE_DAYS * 24 * 60 * 60 * 1000
+  return Date.now() >= dueAt
+}

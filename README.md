@@ -649,6 +649,31 @@ and the button asks for a second confirmation if that opportunity was
 already sent to before, so a duplicate send needs a deliberate second
 click, not an accidental one.
 
+### 15. Follow-up cadence flag: "They've replied" (`012_lead_replied.sql`)
+
+Apply
+[`012_lead_replied.sql`](./supabase/migrations/012_lead_replied.sql)
+(SQL Editor, once) and every opportunity gets a **"They've replied —
+stop follow-up reminders"** checkbox in its drawer, right under the
+send confirmation. Five days after an outreach email is sent with that
+box still unticked, the opportunity gets flagged **Follow-up due** —
+both on its Sales board card and in the drawer — and the draft goal
+picker defaults to "Follow-up — no reply yet" the next time the drawer
+is opened for it.
+
+**This is a visual flag, not automation.** Nothing here drafts or
+sends anything on its own — there's no scheduled function involved,
+deliberately, because this app has no way to know whether a prospect
+actually replied (no inbox integration). A blind "N days later, send
+automatically" system would just as happily re-email someone who
+already wrote back, which is worse than not following up at all — so
+the flag exists to prompt a human to look, not to remove one from the
+loop. Ticking the box (or leaving it ticked) is what actually keeps an
+opportunity out of the flagged state; sending a fresh email
+automatically clears it again, since a new send starts a new cadence.
+`FOLLOW_UP_DUE_DAYS` in `lib/sales.js` is the one place to change the
+5-day window.
+
 ## Local development
 
 ```bash

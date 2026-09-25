@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../context/AuthContext.jsx'
 import { fetchOpportunities, createOpportunity, createOpportunityForNewLead } from '../lib/salesApi.js'
 import { fetchClients } from '../lib/clientsApi.js'
-import { STAGES, computeLastAction } from '../lib/sales.js'
+import { STAGES, computeLastAction, isFollowUpDue } from '../lib/sales.js'
 import { gbp, fmtDate, fmtDateTime } from '../lib/pricing.js'
 import { TierBadge } from '../components/Badges.jsx'
 import OpportunityDrawer from '../components/OpportunityDrawer.jsx'
@@ -192,6 +192,11 @@ export default function Sales() {
                           {o.expected_close_date && <span className="text-slate">{fmtDate(o.expected_close_date)}</span>}
                         </div>
                         {o.ai_draft_message && <div className="mt-1.5 text-[10.5px] text-petrol">AI draft ready</div>}
+                        {isFollowUpDue(o) && (
+                          <div className="mt-1.5 inline-flex items-center rounded-full bg-brass/15 px-2 py-0.5 text-[10px] font-semibold text-brass-dark">
+                            Follow-up due
+                          </div>
+                        )}
                         {lastAction && (
                           <div className="mt-1.5 truncate text-[10.5px] text-slate" title={lastAction.label}>
                             {lastAction.label} · {fmtDateTime(lastAction.at)}

@@ -88,6 +88,17 @@ export async function deleteOpportunity(id) {
   if (error) throw error
 }
 
+// Ticking "They've replied" (or unticking it) — takes the opportunity
+// out of (or back into) the follow-up-due flag; see isFollowUpDue()
+// in lib/sales.js. Never sends or drafts anything itself.
+export async function markReplied(id, replied) {
+  const { error } = await supabase
+    .from('sales_opportunities')
+    .update({ replied_at: replied ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+}
+
 async function callFunction(path, body, accessToken) {
   const res = await fetch(`/.netlify/functions/${path}`, {
     method: 'POST',
