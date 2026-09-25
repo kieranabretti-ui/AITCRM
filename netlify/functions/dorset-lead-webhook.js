@@ -1,25 +1,33 @@
-// Receives the Netlify Forms "outgoing webhook" notification for the
-// aitmsp marketing site's /dorset-it-support Google Ads landing page
-// form, and turns each real submission into a lead here: a client
-// (status: lead) plus a sales_opportunity (stage: new) — the same
-// shape "+ New opportunity" and the Companies House lead finder
+// Turns a /dorset-it-support landing page submission into a lead here:
+// a client (status: lead) plus a sales_opportunity (stage: new) — the
+// same shape "+ New opportunity" and the Companies House lead finder
 // create, so it shows up on the Sales pipeline like any other lead.
 //
-// This is a genuinely public endpoint (Netlify's own servers call it,
-// not a signed-in team member), so it can't use the normal
-// Supabase-session auth every other write in this app requires — RLS
-// only allows authenticated team members to insert into clients/
-// sales_opportunities. Auth here is a shared secret instead, same
-// pattern as jira-webhook.js: baked into the webhook URL you paste
-// into the aitmsp site's Netlify dashboard (Site configuration ->
-// Forms -> Form notifications -> Outgoing webhook), since that UI
-// only lets you configure a URL, not custom headers.
+// Primary caller: the aitmsp site's own relay-lead.js Netlify
+// Function, which the React form calls directly at submit time — see
+// that file for why (in short: a Netlify Forms "Outgoing webhook"
+// notification has two failure modes invisible from outside the
+// Netlify dashboard — whether it's configured correctly, and whether
+// Netlify's own spam classifier silently dropped a real submission
+// before the webhook fired — so the form no longer depends on one).
+// This function still tolerates being called that way too (the
+// Netlify-Forms-wrapped `{payload: {form_name, data: {...}}}` shape)
+// in case that notification is ever added back — same secret either
+// way, so there's nothing extra to configure for it to keep working.
+//
+// This is a genuinely public endpoint (called server-to-server or by
+// Netlify's own infrastructure, never a signed-in team member), so it
+// can't use the normal Supabase-session auth every other write in this
+// app requires — RLS only allows authenticated team members to insert
+// into clients/sales_opportunities. Auth here is a shared secret
+// instead, same pattern as jira-webhook.js.
 //
 // Required environment variables (Netlify: Site configuration ->
 // Environment variables — never VITE_-prefixed):
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-//   DORSET_LEAD_WEBHOOK_SECRET   shared secret — put it in the
-//                                webhook URL as ?secret=... (see README)
+//   DORSET_LEAD_WEBHOOK_SECRET   shared secret — the exact same value
+//                                set on the aitmsp site as its own
+//                                DORSET_LEAD_WEBHOOK_SECRET (see README)
 const { createClient } = require('@supabase/supabase-js')
 
 const FORM_NAME = 'dorset-it-support'
@@ -31,13 +39,19 @@ function timingSafeEqual(a, b) {
   return result === 0
 }
 
-// Netlify's own docs describe the outgoing-webhook body as the
-// submission fields "in a key called payload" — but concrete examples
-// elsewhere show those same fields at the top level. Rather than bet
-// on one shape and silently drop every submission if that's wrong,
-// accept either.
-function unwrapPayload(body) {
-  return body?.payload && typeof body.payload === 'object' ? body.payload : body
+// Three shapes land here in practice: relay-lead.js sends the form
+// fields flat at the top level ({name, email, ...}, no wrapper at
+// all); Netlify's own docs describe its outgoing-webhook body as the
+// submission fields "in a key called payload"; concrete examples
+// elsewhere show those same fields at the top level instead, still
+// nested one level under a "data" key. Rather than bet on one and
+// silently drop every submission if that's wrong, accept all three:
+// unwrap a "payload" wrapper if present, then use a nested "data" key
+// if present, and otherwise treat what's left as the data itself.
+function extractLeadData(body) {
+  const submission = body?.payload && typeof body.payload === 'object' ? body.payload : body
+  const data = submission?.data && typeof submission.data === 'object' ? submission.data : submission
+  return { submission, data: data || {} }
 }
 
 function buildLeadNote(data) {
@@ -69,8 +83,7 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body.' }) }
   }
 
-  const submission = unwrapPayload(body)
-  const data = submission?.data || {}
+  const { submission, data } = extractLeadData(body)
 
   // Temporary diagnostic — set DEBUG_WEBHOOK=1 in Netlify while
   // confirming this is wired up correctly, so a payload-shape mismatch

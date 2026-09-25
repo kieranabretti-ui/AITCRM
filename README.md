@@ -524,11 +524,26 @@ pipeline exactly like a lead added manually or via the Companies House
 finder. No new tables or migration needed — it writes through the
 existing `clients`/`sales_opportunities` schema.
 
-This has to be a genuinely public endpoint (Netlify's own servers call
-it when the marketing site's form is submitted, not a signed-in team
-member), so it can't use the normal session-based auth every other
-write in this app requires. It uses a shared secret instead — same
-pattern as `jira-webhook.js`.
+This has to be a genuinely public endpoint (called server-to-server,
+not by a signed-in team member), so it can't use the normal
+session-based auth every other write in this app requires. It uses a
+shared secret instead — same pattern as `jira-webhook.js`.
+
+**Primary path: direct relay, not a Netlify Forms webhook.** The
+aitmsp site's landing page form calls its own `relay-lead.js` Netlify
+Function at submit time, which then calls this endpoint
+server-to-server with the shared secret attached. This replaced an
+earlier design that depended on Netlify Forms' "Outgoing webhook"
+notification (dashboard-only config, no config-as-code option) —
+that path turned out to have two failure modes invisible from outside
+the Netlify dashboard: whether the notification was actually
+configured correctly, and whether Netlify's own automatic spam
+classifier silently dropped a real submission before the webhook ever
+fired. The relay removes both, since it's ordinary code in the aitmsp
+repo rather than dashboard configuration. This function still accepts
+the old Netlify-Forms-wrapped payload shape too (see `extractLeadData`
+in the source), so re-adding that webhook notification later — e.g. as
+a belt-and-braces backup — would still work with no changes here.
 
 **Setup:**
 
@@ -537,41 +552,36 @@ pattern as `jira-webhook.js`.
 
    | Key | Value | Notes |
    |---|---|---|
-   | `DORSET_LEAD_WEBHOOK_SECRET` | any long random string you generate | shared secret the webhook URL carries |
+   | `DORSET_LEAD_WEBHOOK_SECRET` | any long random string you generate | shared secret checked on every incoming request |
 
    Redeploy after adding it.
 
-2. The webhook URL is:
-
-   ```
-   https://crm.a-it.uk/.netlify/functions/dorset-lead-webhook?secret=<DORSET_LEAD_WEBHOOK_SECRET>
-   ```
-
-3. **This one manual step is in the aitmsp site's own Netlify
-   dashboard, not this repo** — Netlify's Form notifications UI is the
-   only place to configure it, there's no config-as-code option:
-   Site configuration → **Forms → Form notifications → Add
-   notification → Outgoing webhook**. Set it up scoped to the
-   **`dorset-it-support`** form specifically (not "any form" — this
-   site also has the `contact` form, which shouldn't create CRM
-   leads), event **New form submission**, and paste the URL from step 2
-   as the payload URL.
+2. **Set the exact same secret value on the aitmsp site too** —
+   Netlify → the aitmsp site → **Site configuration → Environment
+   variables** → `DORSET_LEAD_WEBHOOK_SECRET` (same key, same value).
+   That's what `relay-lead.js` over there attaches to its
+   server-to-server call here. Redeploy the aitmsp site after adding
+   it. Without this step the relay returns a 500 and no leads arrive,
+   even though this side is fully configured.
 
 **Known limitation:** there's no dedup table for this (unlike the Jira
 webhook, which has one keyed by Jira's own event id) — a retried
-delivery from Netlify (which only happens if this function returns a
-5xx) could create a duplicate lead. Low-likelihood and low-cost if it
-does happen — a duplicate is just an extra card on the Sales board to
-merge or delete — so this was left out of scope for now rather than
-adding a table for it.
+delivery (which only happens if this function returns a 5xx) could
+create a duplicate lead. Low-likelihood and low-cost if it does
+happen — a duplicate is just an extra card on the Sales board to merge
+or delete — so this was left out of scope for now rather than adding a
+table for it.
 
 If leads aren't showing up after setup, set `DEBUG_WEBHOOK=1` on this
 function in Netlify and check its logs (Netlify → this site →
 Functions → dorset-lead-webhook → Logs) next time the form is
 submitted — it logs the payload's shape (field names only, never lead
-content) so a mismatch between what Netlify actually sends and what
-this function expects shows up immediately instead of silently
-dropping submissions.
+content) so a mismatch between what's actually sent and what this
+function expects shows up immediately instead of silently dropping
+submissions. Also worth checking aitmsp's own `relay-lead` function
+logs (Netlify → aitmsp site → Functions → relay-lead → Logs) — a
+missing/mismatched secret or a network failure reaching this CRM
+site would show up there instead.
 
 ## Local development
 
