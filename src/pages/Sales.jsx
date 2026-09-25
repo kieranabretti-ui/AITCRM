@@ -9,6 +9,28 @@ import OpportunityDrawer from '../components/OpportunityDrawer.jsx'
 import LeadFinderPanel from '../components/LeadFinderPanel.jsx'
 import SalesAdvisorPanel from '../components/SalesAdvisorPanel.jsx'
 
+// Which stage columns are collapsed — a per-browser convenience like
+// the lead finder's persisted search, not shared data, so
+// localStorage is the right place for it.
+const COLLAPSED_STAGES_KEY = 'aitcrm.sales.collapsedStages.v1'
+
+function loadCollapsedStages() {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_STAGES_KEY)
+    return raw ? new Set(JSON.parse(raw)) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function saveCollapsedStages(set) {
+  try {
+    localStorage.setItem(COLLAPSED_STAGES_KEY, JSON.stringify(Array.from(set)))
+  } catch {
+    // Private browsing / storage disabled — collapse state just won't persist.
+  }
+}
+
 export default function Sales() {
   const { user, session } = useAuth()
   const [opportunities, setOpportunities] = useState([])
@@ -19,6 +41,8 @@ export default function Sales() {
   const [showNew, setShowNew] = useState(false)
   const [showLeadFinder, setShowLeadFinder] = useState(false)
   const [showAdvisor, setShowAdvisor] = useState(false)
+  const [search, setSearch] = useState('')
+  const [collapsedStages, setCollapsedStages] = useState(loadCollapsedStages)
 
   function reload() {
     Promise.all([fetchOpportunities(), fetchClients()])
@@ -31,12 +55,40 @@ export default function Sales() {
     reload()
   }, [])
 
+  function toggleStage(stageId) {
+    setCollapsedStages((prev) => {
+      const next = new Set(prev)
+      if (next.has(stageId)) next.delete(stageId)
+      else next.add(stageId)
+      saveCollapsedStages(next)
+      return next
+    })
+  }
+
+  // Matches business name, contact name, or contact email — the three
+  // things someone's actually likely to type in when hunting for one
+  // lead among many.
+  const filteredOpportunities = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return opportunities
+    return opportunities.filter((o) => {
+      const c = o.clients || {}
+      return (
+        (c.business_name || '').toLowerCase().includes(q) ||
+        (c.contact_name || '').toLowerCase().includes(q) ||
+        (c.contact_email || '').toLowerCase().includes(q)
+      )
+    })
+  }, [opportunities, search])
+
   const byStage = useMemo(() => {
     const grouped = Object.fromEntries(STAGES.map((s) => [s.id, []]))
-    opportunities.forEach((o) => { if (grouped[o.stage]) grouped[o.stage].push(o) })
+    filteredOpportunities.forEach((o) => { if (grouped[o.stage]) grouped[o.stage].push(o) })
     return grouped
-  }, [opportunities])
+  }, [filteredOpportunities])
 
+  // Always reflects the real pipeline, not the current search — a
+  // search is a lookup, not a reason for the headline numbers to move.
   const openPipelineValue = useMemo(
     () => opportunities.filter((o) => o.stage !== 'won' && o.stage !== 'lost').reduce((s, o) => s + (Number(o.estimated_value_annual) || 0), 0),
     [opportunities],
@@ -62,6 +114,27 @@ export default function Sales() {
         <p className="mb-5 rounded-[6px] border border-status-churned/30 bg-status-churned/10 p-3 text-[13px] text-status-churned">{error}</p>
       )}
 
+      {opportunities.length > 0 && (
+        <div className="relative mb-4 max-w-[320px]">
+          <input
+            type="text"
+            placeholder="Search leads by name or email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="field-input pr-8"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate hover:text-ink"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
+
       {opportunities.length === 0 ? (
         <div className="card p-16 text-center">
           <h2 className="font-display text-lg font-semibold">No opportunities yet</h2>
@@ -73,12 +146,22 @@ export default function Sales() {
           {STAGES.map((stage) => {
             const rows = byStage[stage.id] || []
             const value = rows.reduce((s, o) => s + (Number(o.estimated_value_annual) || 0), 0)
+            const collapsed = collapsedStages.has(stage.id)
             return (
               <div key={stage.id} className="w-[260px] shrink-0">
-                <div className="mb-2.5 flex items-center justify-between px-1">
-                  <h2 className="text-[12.5px] font-bold uppercase tracking-wideish text-slate">{stage.label}</h2>
-                  <span className="rounded-full bg-paper-dim px-2 font-mono text-[11px]">{rows.length}</span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleStage(stage.id)}
+                  aria-expanded={!collapsed}
+                  className="mb-2.5 flex w-full items-center justify-between gap-2 px-1 text-left"
+                >
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="shrink-0 text-[10px] text-slate">{collapsed ? '▸' : '▾'}</span>
+                    <h2 className="truncate text-[12.5px] font-bold uppercase tracking-wideish text-slate">{stage.label}</h2>
+                  </span>
+                  <span className="shrink-0 rounded-full bg-paper-dim px-2 font-mono text-[11px]">{rows.length}</span>
+                </button>
+                {!collapsed && (
                 <div className="flex flex-col gap-2">
                   {rows.map((o) => {
                     const lastAction = computeLastAction(o)
@@ -117,8 +200,13 @@ export default function Sales() {
                       </button>
                     )
                   })}
-                  {rows.length === 0 && <div className="rounded-md border border-dashed border-stone p-3 text-center text-[11.5px] text-slate">Empty</div>}
+                  {rows.length === 0 && (
+                    <div className="rounded-md border border-dashed border-stone p-3 text-center text-[11.5px] text-slate">
+                      {search.trim() ? 'No matches' : 'Empty'}
+                    </div>
+                  )}
                 </div>
+                )}
                 {value > 0 && <div className="mt-2 px-1 text-[11px] text-slate">{gbp(value)} total</div>}
               </div>
             )
