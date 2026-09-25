@@ -16,10 +16,36 @@ export function stageLabel(id) {
 export const DRAFT_GOALS = [
   { id: 'initial_outreach', label: 'Initial outreach', prompt: 'Draft an initial outreach email introducing A-IT and asking to arrange a short call.' },
   { id: 'no_reply_followup', label: 'Follow-up — no reply yet', prompt: 'Draft a brief, friendly follow-up email since there has been no reply to the last message.' },
+  { id: 'later_followup', label: 'Follow-up — still no reply (2nd+)', prompt: 'Draft a brief, low-pressure final check-in email. This is at least the second follow-up with no reply, so acknowledge that lightly without being pushy or guilt-tripping, keep it noticeably shorter than a first follow-up, and make it genuinely easy to say no or simply not reply — e.g. offering to stop reaching out if now is not the right time.' },
   { id: 'proposal_followup', label: 'Follow-up after proposal', prompt: 'Draft a follow-up email checking in after a proposal was sent, offering to answer any questions.' },
   { id: 're_engage', label: 'Re-engage a stalled deal', prompt: 'Draft a re-engagement email for a deal that has gone quiet, low-pressure, checking if priorities have changed.' },
   { id: 'welcome', label: 'Welcome after winning the deal', prompt: 'Draft a warm welcome/next-steps email now that this deal has been won.' },
 ]
+
+// The activity-log text prefixes each outreach-send path uses — see
+// send-outreach-email.js (manual) and auto-follow-up.js (automated).
+// Matched here to count how many outreach emails a client has already
+// been sent, so a repeated no-reply follow-up doesn't keep reusing the
+// same "just following up" framing indefinitely.
+const OUTREACH_ACTIVITY_PREFIXES = ['Outreach email sent to', 'Follow-up email sent automatically']
+
+function countPriorOutreachSends(client) {
+  const activity = client?.client_activity || []
+  return activity.filter((a) => OUTREACH_ACTIVITY_PREFIXES.some((prefix) => a.text?.startsWith(prefix))).length
+}
+
+// Which follow-up goal fits an opportunity's client right now: the
+// first no-reply follow-up reads naturally as "just checking in," but
+// by the second (or later) one with still no reply, the same framing
+// starts to sound tone-deaf — so this switches to the shorter,
+// lower-pressure 'later_followup' goal once at least one outreach
+// email has already gone out before whichever one is about to be
+// drafted. Used both for the drawer's auto-selected goal and by
+// auto-follow-up.js's automated sender (mirrored there — see that
+// file for why it can't just import this one).
+export function pickFollowUpGoalId(client) {
+  return countPriorOutreachSends(client) >= 2 ? 'later_followup' : 'no_reply_followup'
+}
 
 // A tie within this window of an opportunity's own creation counts as
 // "just added," not "updated" — both created_at and updated_at get

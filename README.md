@@ -659,7 +659,13 @@ send confirmation. Five days after an outreach email is sent with that
 box still unticked, the opportunity gets flagged **Follow-up due** —
 both on its Sales board card and in the drawer — and the draft goal
 picker defaults to "Follow-up — no reply yet" the next time the drawer
-is opened for it.
+is opened for it, or to the shorter, lower-pressure "Follow-up — still
+no reply (2nd+)" goal instead once a first follow-up has already gone
+out with no reply and it's due again — `pickFollowUpGoalId()` in
+`lib/sales.js` decides which by counting outreach-send entries already
+in the client's activity log, so the same "just checking in" framing
+doesn't repeat indefinitely on the third, fourth email. The drawer's
+"Preview this email" button (below) uses the same logic.
 
 **By default this is a visual flag, not automation.** Nothing drafts
 or sends on its own unless you deliberately turn on the scheduled

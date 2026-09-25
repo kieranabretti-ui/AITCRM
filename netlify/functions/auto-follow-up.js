@@ -33,9 +33,22 @@ const { isConfigured, sendEmail } = require('./lib/emailSender.js')
 // won/lost exclusion ever changes.
 const FOLLOW_UP_DUE_DAYS = 5
 
-// Same prompt as the 'no_reply_followup' entry in DRAFT_GOALS,
-// src/lib/sales.js — keep in sync.
-const FOLLOW_UP_GOAL = 'Draft a brief, friendly follow-up email since there has been no reply to the last message.'
+// Same prompts as the 'no_reply_followup'/'later_followup' entries in
+// DRAFT_GOALS, src/lib/sales.js — keep in sync.
+const FIRST_FOLLOW_UP_GOAL = 'Draft a brief, friendly follow-up email since there has been no reply to the last message.'
+const LATER_FOLLOW_UP_GOAL = 'Draft a brief, low-pressure final check-in email. This is at least the second follow-up with no reply, so acknowledge that lightly without being pushy or guilt-tripping, keep it noticeably shorter than a first follow-up, and make it genuinely easy to say no or simply not reply — e.g. offering to stop reaching out if now is not the right time.'
+
+// Same prefixes/logic as pickFollowUpGoalId() in src/lib/sales.js —
+// reimplemented here for the same ESM/CJS reason as everything else
+// mirrored in this file. Counts how many outreach emails this
+// client's activity log already shows were sent (manual or
+// automated), so the second-or-later no-reply follow-up doesn't keep
+// reusing the same "just checking in" framing indefinitely.
+const OUTREACH_ACTIVITY_PREFIXES = ['Outreach email sent to', 'Follow-up email sent automatically']
+function pickFollowUpGoal(client) {
+  const priorSends = (client.client_activity || []).filter((a) => OUTREACH_ACTIVITY_PREFIXES.some((prefix) => a.text?.startsWith(prefix))).length
+  return priorSends >= 2 ? LATER_FOLLOW_UP_GOAL : FIRST_FOLLOW_UP_GOAL
+}
 
 // Safety cap, not an expected volume — so a backlog (e.g. the first
 // run right after this is switched on) can't fire off a burst of
@@ -95,9 +108,10 @@ exports.handler = async () => {
         skipped++
         continue
       }
+      const goal = pickFollowUpGoal(client)
       client.activity = (client.client_activity || []).slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 
-      const draft = await draftSalesMessage({ client, opportunity, goal: FOLLOW_UP_GOAL })
+      const draft = await draftSalesMessage({ client, opportunity, goal })
       if (!draft.ok) {
         console.error(`[auto-follow-up] could not draft for opportunity ${opportunity.id}: ${draft.reason}`)
         failed++

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchOpportunity, updateOpportunity, updateStage, deleteOpportunity, requestSalesDraft, sendOutreachEmail, markReplied } from '../lib/salesApi.js'
 import { updateClient } from '../lib/clientsApi.js'
 import { findContactInfo } from '../lib/contactFinder.js'
-import { STAGES, DRAFT_GOALS, isFollowUpDue, nextFollowUpAt } from '../lib/sales.js'
+import { STAGES, DRAFT_GOALS, isFollowUpDue, nextFollowUpAt, pickFollowUpGoalId } from '../lib/sales.js'
 import { fmtDateTime } from '../lib/pricing.js'
 import { TierBadge } from './Badges.jsx'
 
@@ -41,10 +41,12 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
     setDraftSubject(o.ai_draft_message?.subject || '')
     setDraftBody(o.ai_draft_message?.body || '')
     setSendToEmail(o.clients?.contact_email || '')
-    // Nudge toward the right draft goal when this is exactly the
-    // situation "Follow-up — no reply yet" is for — doesn't overwrite
-    // a choice the user's already made, only the initial load.
-    if (isFollowUpDue(o)) setGoal('no_reply_followup')
+    // Nudge toward the right follow-up goal when this is exactly that
+    // situation — first no-reply follow-up vs. a shorter, lower-
+    // pressure one if this isn't the first time following up with
+    // still no reply. Doesn't overwrite a choice the user's already
+    // made, only the initial load.
+    if (isFollowUpDue(o)) setGoal(pickFollowUpGoalId(o.clients))
   }
 
   function load() {
@@ -411,7 +413,7 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
                           : `Scheduled for ${fmtDateTime(nextFollowUpAt(opp))} if still unreplied then.`}
                       </p>
                       <button
-                        onClick={() => handleGenerateDraft('no_reply_followup')}
+                        onClick={() => handleGenerateDraft(pickFollowUpGoalId(client))}
                         disabled={drafting}
                         className="btn btn-ghost shrink-0 px-2 py-1 text-[11px] disabled:opacity-50"
                       >
