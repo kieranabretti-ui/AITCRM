@@ -2,11 +2,11 @@
 // follow-up message for one sales opportunity, using the same
 // structured (forced tool-call) pattern as the support copilot in
 // aiTechnician.js, but far narrower in scope: this never touches an
-// existing ticket, never contacts anyone itself, and never runs
-// automatically — it's called once, on request, from the Sales page,
-// and its output always sits as a draft for a human to read, edit and
-// send themselves. There is no email-sending integration in this app;
-// producing text is the entire extent of what this does.
+// existing ticket and never contacts anyone itself — it's called
+// once, on request, from the Sales page, and its output always sits
+// as a draft for a human on the Sales page to review, edit, and
+// explicitly choose to send (see send-outreach-email.js) or send
+// themselves by hand. This module itself never sends anything.
 //
 // Required env var: ANTHROPIC_API_KEY. Optional: ANTHROPIC_MODEL.
 // On any failure this returns { ok: false, reason }, never throws.
@@ -15,8 +15,9 @@ const { buildPriceFacts } = require('./pricingFacts.js')
 
 const DEFAULT_MODEL = 'claude-opus-5'
 const REQUEST_TIMEOUT_MS = 25_000
+const SENDER_NAME = 'Kieran'
 
-const SYSTEM_PROMPT = `You are the sales assistant for A-IT, a UK managed IT and cybersecurity provider for small and medium businesses. You draft a single outreach or follow-up email for one prospect, for a member of A-IT's team to review, edit, and send themselves — you never send anything, and you have no access to any system beyond what's described in this prompt.
+const SYSTEM_PROMPT = `You are the sales assistant for A-IT, a UK managed IT and cybersecurity provider for small and medium businesses. You draft a single outreach or follow-up email for one prospect, for a member of A-IT's team to review and send. You never send anything yourself, and you have no access to any system beyond what's described in this prompt.
 
 ${buildPriceFacts()}
 
@@ -28,6 +29,9 @@ ${buildPriceFacts()}
 - Keep it concise, professional, and free of hard-sell pressure tactics (no artificial urgency, no fake scarcity). British business tone — direct, warm, not salesy.
 - Write only the one email requested for the stated goal; do not draft a whole sequence.
 - If the opportunity has very little information to go on, write a shorter, more general message rather than inventing specifics to fill the gap.
+- Sign the email as "${SENDER_NAME}" (from A-IT) — never a placeholder like "[Your Name]", and never a made-up surname or title.
+- The email must be ready to send exactly as written. Never leave a bracketed or blank placeholder anywhere — no "[Company Name]", "[insert detail]", "[specific pain point]", or similar gap for a human to fill in. If you don't have a piece of information (e.g. the prospect's name), write around its absence naturally (e.g. address the business by name, or open with "Hi," rather than inventing or blanking out a name).
+- If this is a first-touch/cold email to someone who hasn't engaged with A-IT before (e.g. the goal is introducing A-IT), include one brief, natural, concrete sentence offering an easy opt-out — e.g. that a short reply is all it takes to not hear from A-IT again. Don't make it sound like a mass broadcast; write it like a person who means it.
 
 Respond only by calling the submit_draft tool.`
 

@@ -101,3 +101,11 @@ async function callFunction(path, body, accessToken) {
 export async function requestSalesDraft(opportunityId, goal, accessToken) {
   return callFunction('sales-draft', { opportunityId, goal }, accessToken)
 }
+
+// Needs the Resend service credentials, so it's a Netlify Function
+// rather than a direct table write — see send-outreach-email.js. This
+// is the one call in the app that actually delivers an email; always
+// a deliberate click on an already-drafted, human-reviewed message.
+export async function sendOutreachEmail(opportunityId, subject, body, accessToken) {
+  return callFunction('send-outreach-email', { opportunityId, subject, body }, accessToken)
+}

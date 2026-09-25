@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchOpportunity, updateOpportunity, updateStage, deleteOpportunity, requestSalesDraft } from '../lib/salesApi.js'
+import { fetchOpportunity, updateOpportunity, updateStage, deleteOpportunity, requestSalesDraft, sendOutreachEmail } from '../lib/salesApi.js'
 import { updateClient } from '../lib/clientsApi.js'
 import { findContactInfo } from '../lib/contactFinder.js'
 import { STAGES, DRAFT_GOALS } from '../lib/sales.js'
@@ -21,22 +21,44 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
   const [finding, setFinding] = useState(false)
   const [contactResult, setContactResult] = useState(null)
   const [copiedField, setCopiedField] = useState('')
+  const [draftSubject, setDraftSubject] = useState('')
+  const [draftBody, setDraftBody] = useState('')
+  const [sending, setSending] = useState(false)
+  const [confirmResend, setConfirmResend] = useState(false)
+
+  function applyLoaded(o) {
+    setOpp(o)
+    setForm({
+      estimated_value_annual: o.estimated_value_annual ?? '',
+      expected_close_date: o.expected_close_date || '',
+      notes: o.notes || '',
+    })
+    setLostReason(o.lost_reason || '')
+    setWebsiteInput(o.clients?.website || '')
+    setDraftSubject(o.ai_draft_message?.subject || '')
+    setDraftBody(o.ai_draft_message?.body || '')
+  }
 
   function load() {
     setLoading(true)
     fetchOpportunity(opportunityId)
-      .then((o) => {
-        setOpp(o)
-        setForm({
-          estimated_value_annual: o.estimated_value_annual ?? '',
-          expected_close_date: o.expected_close_date || '',
-          notes: o.notes || '',
-        })
-        setLostReason(o.lost_reason || '')
-        setWebsiteInput(o.clients?.website || '')
-      })
+      .then(applyLoaded)
       .catch((err) => setError(err.message || 'Could not load this opportunity.'))
       .finally(() => setLoading(false))
+  }
+
+  // After a send: refetches everything EXCEPT the draft subject/body
+  // fields. Deliberately not applyLoaded()/refreshQuietly() — those
+  // reset draftSubject/draftBody from the stored ai_draft_message,
+  // which is the original AI draft, not whatever the human actually
+  // edited it to before sending. That would make it look like the
+  // user's edits vanished right after a successful send, even though
+  // the edited version is exactly what was sent (and is what
+  // outreach_sent_subject/body below record).
+  function refreshAfterSend() {
+    fetchOpportunity(opportunityId)
+      .then((o) => setOpp((prev) => ({ ...prev, clients: o.clients, outreach_sent_at: o.outreach_sent_at, outreach_sent_to: o.outreach_sent_to, outreach_sent_subject: o.outreach_sent_subject, outreach_sent_body: o.outreach_sent_body })))
+      .catch(() => {})
   }
 
   useEffect(() => {
@@ -97,6 +119,9 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
       const goalPrompt = DRAFT_GOALS.find((g) => g.id === goal)?.prompt || goal
       const { draft } = await requestSalesDraft(opportunityId, goalPrompt, session.access_token)
       setOpp((o) => ({ ...o, ai_draft_message: draft, ai_draft_generated_at: new Date().toISOString() }))
+      setDraftSubject(draft.subject || '')
+      setDraftBody(draft.body || '')
+      setConfirmResend(false)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -104,10 +129,29 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
     }
   }
 
+  async function handleSendEmail() {
+    if (opp.outreach_sent_at && !confirmResend) {
+      setConfirmResend(true)
+      return
+    }
+    setSending(true)
+    setError('')
+    try {
+      const { warning } = await sendOutreachEmail(opportunityId, draftSubject, draftBody, session.access_token)
+      setConfirmResend(false)
+      if (warning) setError(warning)
+      refreshAfterSend()
+      onChanged?.()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSending(false)
+    }
+  }
+
   function handleCopyDraft() {
-    if (!opp?.ai_draft_message) return
-    const { subject, body } = opp.ai_draft_message
-    navigator.clipboard.writeText(`Subject: ${subject}\n\n${body}`).then(() => {
+    if (!draftSubject && !draftBody) return
+    navigator.clipboard.writeText(`Subject: ${draftSubject}\n\n${draftBody}`).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
@@ -232,8 +276,20 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
 
             {opp.ai_draft_message && (
               <div className="mt-3.5 rounded-[6px] border border-stone bg-paper-dim p-3">
-                <div className="mb-2 text-[12.5px]"><span className="font-semibold">Subject: </span>{opp.ai_draft_message.subject}</div>
-                <p className="mb-2 whitespace-pre-wrap rounded-[6px] border border-stone bg-white p-3 text-[13px]">{opp.ai_draft_message.body}</p>
+                <label className="mb-1 block text-[11px] font-semibold text-slate">Subject</label>
+                <input
+                  type="text"
+                  value={draftSubject}
+                  onChange={(e) => setDraftSubject(e.target.value)}
+                  className="field-input mb-2 bg-white text-[12.5px]"
+                />
+                <label className="mb-1 block text-[11px] font-semibold text-slate">Body — reviewed and edited here is what actually sends</label>
+                <textarea
+                  rows={10}
+                  value={draftBody}
+                  onChange={(e) => setDraftBody(e.target.value)}
+                  className="field-input mb-2 resize-y bg-white text-[13px]"
+                />
                 {opp.ai_draft_message.key_points?.length > 0 && (
                   <div className="mb-2">
                     <div className="font-mono text-[10px] uppercase tracking-wideish text-slate">Key points</div>
@@ -245,14 +301,30 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
                 {opp.ai_draft_message.follow_up_suggestion && (
                   <p className="mb-2 text-[12px] text-slate"><span className="font-semibold text-ink">Next: </span>{opp.ai_draft_message.follow_up_suggestion}</p>
                 )}
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button onClick={handleCopyDraft} className="btn btn-ghost px-2.5 py-1 text-[12px]">
                     {copied ? 'Copied ✓' : 'Copy subject + body'}
                   </button>
-                  <span className="text-[11px] text-slate">Draft only — review and send it yourself.</span>
+                  {client.contact_email ? (
+                    <button
+                      onClick={handleSendEmail}
+                      disabled={sending || !draftSubject.trim() || !draftBody.trim()}
+                      className={`btn px-2.5 py-1 text-[12px] disabled:opacity-50 ${confirmResend ? 'btn-danger' : 'btn-primary'}`}
+                    >
+                      {sending ? 'Sending…' : confirmResend ? `Confirm — send again to ${client.contact_email}?` : `Send to ${client.contact_email}`}
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-slate">Find a contact email below before this can be sent.</span>
+                  )}
+                  {confirmResend && (
+                    <button onClick={() => setConfirmResend(false)} className="btn btn-ghost px-2.5 py-1 text-[12px]">Cancel</button>
+                  )}
                 </div>
                 {opp.ai_draft_generated_at && (
                   <p className="mt-2 text-[10.5px] text-slate">Generated {fmtDateTime(opp.ai_draft_generated_at)}</p>
+                )}
+                {opp.outreach_sent_at && (
+                  <p className="mt-1 text-[10.5px] font-semibold text-petrol">Sent to {opp.outreach_sent_to} on {fmtDateTime(opp.outreach_sent_at)}</p>
                 )}
               </div>
             )}

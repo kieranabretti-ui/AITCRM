@@ -337,14 +337,17 @@ opportunity belongs to a client record — a brand-new prospect is just
 a client created with status `lead`, so contact info lives in one
 place). Opening an opportunity gives you a **Draft with AI** button:
 pick a goal (initial outreach, follow-up, re-engagement, etc.) and
-`sales-draft.js` calls Claude to write a subject/body/key-points draft,
-grounded only in real data on the opportunity and A-IT's actual
-published pricing (it's instructed never to invent a discount, a
-timeline, or a fact about the prospect it hasn't been given). The
-draft is never sent automatically — there's no email-sending
-integration in this app, and outbound sales messages are exactly the
-kind of thing that stays a human's call. Copy it and send it from your
-own email client.
+`sales-draft.js` calls Claude to write a complete, ready-to-send
+subject/body/key-points draft — signed off as Kieran, no bracketed
+placeholders left for a human to fill in — grounded only in real data
+on the opportunity and A-IT's actual published pricing (it's
+instructed never to invent a discount, a timeline, or a fact about the
+prospect it hasn't been given). The draft is editable right there in
+the drawer, and is never sent automatically — a team member reviews
+it, edits it if needed, and explicitly clicks Send (see section 14
+below for how sending itself works) or copies it into their own email
+client instead. Outbound sales messages going out is always a human's
+deliberate action, never something that happens on its own.
 
 ### 8. Clients page scoped to onboarding + active, with AI next-action suggestions
 
@@ -582,6 +585,54 @@ submissions. Also worth checking aitmsp's own `relay-lead` function
 logs (Netlify → aitmsp site → Functions → relay-lead → Logs) — a
 missing/mismatched secret or a network failure reaching this CRM
 site would show up there instead.
+
+### 14. Sending AI-drafted outreach emails (`send-outreach-email.js`)
+
+The Sales page's **Draft with AI** button (section 7) writes a
+complete, ready-to-send email; the **Send to `<email>`** button next
+to it — in the same opportunity drawer — actually delivers it, via
+[Resend](https://resend.com). This is a deliberate, one-click, signed-in
+human action every time; nothing in this app queues, schedules, or
+sends an outreach email on its own. The draft is fully editable
+in-place right before sending, and the button is disabled until the
+opportunity's client has a contact email on file (see section 10 or
+11 for how that gets found).
+
+**Setup:**
+
+1. Create a [Resend](https://resend.com) account and verify **a-it.uk**
+   as a sending domain: Dashboard → **Domains** → **Add Domain** →
+   `a-it.uk`, then add the SPF/DKIM DNS records it gives you wherever
+   a-it.uk's DNS is managed. This step is what actually determines
+   deliverability — an unverified domain either fails to send or lands
+   in spam, regardless of anything in this app.
+2. Dashboard → **API Keys** → create one, then add it in Netlify →
+   **Site configuration → Environment variables**:
+
+   | Key | Value | Notes |
+   |---|---|---|
+   | `RESEND_API_KEY` | the API key from Resend | server-side only, never shipped to the browser |
+   | `OUTREACH_FROM_EMAIL` | `hello@a-it.uk` | must be on the domain verified in step 1 |
+   | `OUTREACH_FROM_NAME` | `Kieran at A-IT` | optional — the display name recipients see; defaults to this if unset |
+
+   Redeploy after adding them.
+
+**Compliance note (PECR/GDPR) — read before sending real cold
+outreach:** UK rules on unsolicited B2B email are more permissive than
+for consumers, but a genuinely cold email still needs to clearly
+identify the sender (it does — "Kieran at A-IT", reply-to
+`hello@a-it.uk`) and offer an easy way to stop hearing from you (the
+AI is instructed to include one for first-touch emails — see
+`salesAssistant.js`). This app doesn't maintain a suppression list —
+if someone asks not to be contacted again, that's on the person
+sending to actually honour, same as it would be by hand.
+
+Every send is logged to the client's activity log and stamped on the
+opportunity (`outreach_sent_at`/`outreach_sent_to` —
+[`010_outreach_email.sql`](./supabase/migrations/010_outreach_email.sql)),
+and the button asks for a second confirmation if that opportunity was
+already sent to before, so a duplicate send needs a deliberate second
+click, not an accidental one.
 
 ## Local development
 
