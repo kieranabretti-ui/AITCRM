@@ -72,15 +72,30 @@ export function computeLastAction(opportunity) {
 // opportunity as due a follow-up. A flag only — see isFollowUpDue().
 export const FOLLOW_UP_DUE_DAYS = 5
 
-// True when an opportunity has been emailed, nobody's ticked "They've
-// replied," it isn't already won or lost, and enough time has passed
-// since the last send. This never sends anything itself — it's what
-// the Sales board's "Follow-up due" badge and the opportunity
-// drawer's reminder both read, to surface which leads need a human
-// to look at them again, without anything happening on its own.
+// The follow-up cadence is only "active" for an opportunity that's
+// actually been emailed, hasn't had a reply marked, and isn't already
+// closed out — shared by isFollowUpDue() and nextFollowUpAt() so the
+// two can't quietly disagree about when a cadence even applies.
+function isCadenceActive(opportunity) {
+  return Boolean(opportunity.outreach_sent_at) && !opportunity.replied_at && opportunity.stage !== 'won' && opportunity.stage !== 'lost'
+}
+
+// The ISO timestamp of the next automated-follow-up point for an
+// opportunity — in the past if it's already due, in the future if
+// not yet. Null when there's no active cadence to schedule at all
+// (never sent, already replied, or the deal is closed). Pure and
+// read-only.
+export function nextFollowUpAt(opportunity) {
+  if (!isCadenceActive(opportunity)) return null
+  return new Date(new Date(opportunity.outreach_sent_at).getTime() + FOLLOW_UP_DUE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+}
+
+// True once that point has actually passed. This never sends
+// anything itself — it's what the Sales board's "Follow-up due"
+// badge and the opportunity drawer's reminder both read, to surface
+// which leads need a human to look at them again, without anything
+// happening on its own.
 export function isFollowUpDue(opportunity) {
-  if (!opportunity.outreach_sent_at || opportunity.replied_at) return false
-  if (opportunity.stage === 'won' || opportunity.stage === 'lost') return false
-  const dueAt = new Date(opportunity.outreach_sent_at).getTime() + FOLLOW_UP_DUE_DAYS * 24 * 60 * 60 * 1000
-  return Date.now() >= dueAt
+  const dueAt = nextFollowUpAt(opportunity)
+  return dueAt != null && Date.now() >= new Date(dueAt).getTime()
 }

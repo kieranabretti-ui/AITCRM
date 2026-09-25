@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchOpportunity, updateOpportunity, updateStage, deleteOpportunity, requestSalesDraft, sendOutreachEmail, markReplied } from '../lib/salesApi.js'
 import { updateClient } from '../lib/clientsApi.js'
 import { findContactInfo } from '../lib/contactFinder.js'
-import { STAGES, DRAFT_GOALS, isFollowUpDue } from '../lib/sales.js'
+import { STAGES, DRAFT_GOALS, isFollowUpDue, nextFollowUpAt } from '../lib/sales.js'
 import { fmtDateTime } from '../lib/pricing.js'
 import { TierBadge } from './Badges.jsx'
 
@@ -120,16 +120,23 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
     }
   }
 
-  async function handleGenerateDraft() {
+  // goalIdOverride lets the "Preview this email" shortcut (below)
+  // draft with the follow-up goal without needing setGoal() to have
+  // flushed first — React state updates aren't synchronous, so
+  // setGoal() then immediately reading `goal` here would still see
+  // the old value.
+  async function handleGenerateDraft(goalIdOverride) {
+    const goalId = goalIdOverride || goal
     setDrafting(true)
     setError('')
     try {
-      const goalPrompt = DRAFT_GOALS.find((g) => g.id === goal)?.prompt || goal
+      const goalPrompt = DRAFT_GOALS.find((g) => g.id === goalId)?.prompt || goalId
       const { draft } = await requestSalesDraft(opportunityId, goalPrompt, session.access_token)
       setOpp((o) => ({ ...o, ai_draft_message: draft, ai_draft_generated_at: new Date().toISOString() }))
       setDraftSubject(draft.subject || '')
       setDraftBody(draft.body || '')
       setConfirmResend(false)
+      setGoal(goalId)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -302,7 +309,7 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
               <select value={goal} onChange={(e) => setGoal(e.target.value)} className="field-input flex-1">
                 {DRAFT_GOALS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
               </select>
-              <button onClick={handleGenerateDraft} disabled={drafting} className="btn btn-primary shrink-0 px-2.5 py-1 text-[12px] disabled:opacity-50">
+              <button onClick={() => handleGenerateDraft()} disabled={drafting} className="btn btn-primary shrink-0 px-2.5 py-1 text-[12px] disabled:opacity-50">
                 {drafting ? 'Drafting…' : opp.ai_draft_message ? 'Redraft' : 'Draft with AI'}
               </button>
             </div>
@@ -394,6 +401,29 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
                 </div>
                 {opp.replied_at && (
                   <p className="mt-1.5 text-[10.5px] text-slate">Marked as replied {fmtDateTime(opp.replied_at)} — untick to bring back into the follow-up cadence.</p>
+                )}
+                {nextFollowUpAt(opp) && (
+                  <div className="mt-3 border-t border-stone pt-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[11px] text-slate">
+                        {isFollowUpDue(opp)
+                          ? 'Due now — next scheduled run will pick this up.'
+                          : `Scheduled for ${fmtDateTime(nextFollowUpAt(opp))} if still unreplied then.`}
+                      </p>
+                      <button
+                        onClick={() => handleGenerateDraft('no_reply_followup')}
+                        disabled={drafting}
+                        className="btn btn-ghost shrink-0 px-2 py-1 text-[11px] disabled:opacity-50"
+                      >
+                        {drafting ? 'Drafting…' : 'Preview this email'}
+                      </button>
+                    </div>
+                    <p className="mt-1 text-[10px] text-slate">
+                      Drafts with the same AI and prompt the automatic sender uses — shown in the box above, editable,
+                      and safe to look at either way: this only actually goes out on its own if automated sending has
+                      been turned on for this site (see the README) — otherwise it just sits here until you click Send.
+                    </p>
+                  </div>
                 )}
               </div>
             )}
