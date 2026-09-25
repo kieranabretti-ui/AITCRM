@@ -6,6 +6,8 @@ import { STAGES, DRAFT_GOALS } from '../lib/sales.js'
 import { fmtDateTime } from '../lib/pricing.js'
 import { TierBadge } from './Badges.jsx'
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 export default function OpportunityDrawer({ opportunityId, session, onClose, onChanged }) {
   const [opp, setOpp] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -25,6 +27,7 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
   const [draftBody, setDraftBody] = useState('')
   const [sending, setSending] = useState(false)
   const [confirmResend, setConfirmResend] = useState(false)
+  const [sendToEmail, setSendToEmail] = useState('')
 
   function applyLoaded(o) {
     setOpp(o)
@@ -37,6 +40,7 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
     setWebsiteInput(o.clients?.website || '')
     setDraftSubject(o.ai_draft_message?.subject || '')
     setDraftBody(o.ai_draft_message?.body || '')
+    setSendToEmail(o.clients?.contact_email || '')
   }
 
   function load() {
@@ -137,6 +141,15 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
     setSending(true)
     setError('')
     try {
+      const email = sendToEmail.trim()
+      // The Send-to field is the source of truth for where this goes —
+      // persist it onto the client record first (if it's new or
+      // changed) so send-outreach-email.js, which reads the contact
+      // email fresh from the client row rather than trusting a value
+      // from the request, picks up exactly what's shown here.
+      if (client.id && email !== (client.contact_email || '')) {
+        await updateClient(client.id, { contact_email: email })
+      }
       const { warning } = await sendOutreachEmail(opportunityId, draftSubject, draftBody, session.access_token)
       setConfirmResend(false)
       if (warning) setError(warning)
@@ -176,11 +189,15 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
     }
   }
 
-  function handleCopyField(value, field) {
+  function handleCopyField(value, field, isEmail) {
     navigator.clipboard.writeText(value).then(() => {
       setCopiedField(field)
       setTimeout(() => setCopiedField(''), 2000)
     })
+    // A found email is exactly the kind of thing the Send-to field
+    // exists for — fill it in immediately rather than making the
+    // human copy it here and paste it into a different field below.
+    if (isEmail) setSendToEmail(value)
   }
 
   if (loading) {
@@ -301,21 +318,30 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
                 {opp.ai_draft_message.follow_up_suggestion && (
                   <p className="mb-2 text-[12px] text-slate"><span className="font-semibold text-ink">Next: </span>{opp.ai_draft_message.follow_up_suggestion}</p>
                 )}
+                <label className="mb-1 block text-[11px] font-semibold text-slate">Send to</label>
+                <input
+                  type="email"
+                  value={sendToEmail}
+                  onChange={(e) => { setSendToEmail(e.target.value); setConfirmResend(false) }}
+                  placeholder="contact@company.co.uk"
+                  className="field-input mb-1 bg-white text-[12.5px]"
+                />
+                <p className="mb-2 text-[10.5px] text-slate">
+                  {client.contact_email && client.contact_email === sendToEmail
+                    ? 'Auto-found from the website contact finder — edit above if it\'s wrong.'
+                    : 'Not auto-detected yet — type it here, or use "Find contact info" below.'}
+                </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <button onClick={handleCopyDraft} className="btn btn-ghost px-2.5 py-1 text-[12px]">
                     {copied ? 'Copied ✓' : 'Copy subject + body'}
                   </button>
-                  {client.contact_email ? (
-                    <button
-                      onClick={handleSendEmail}
-                      disabled={sending || !draftSubject.trim() || !draftBody.trim()}
-                      className={`btn px-2.5 py-1 text-[12px] disabled:opacity-50 ${confirmResend ? 'btn-danger' : 'btn-primary'}`}
-                    >
-                      {sending ? 'Sending…' : confirmResend ? `Confirm — send again to ${client.contact_email}?` : `Send to ${client.contact_email}`}
-                    </button>
-                  ) : (
-                    <span className="text-[11px] text-slate">Find a contact email below before this can be sent.</span>
-                  )}
+                  <button
+                    onClick={handleSendEmail}
+                    disabled={sending || !EMAIL_RE.test(sendToEmail.trim()) || !draftSubject.trim() || !draftBody.trim()}
+                    className={`btn px-2.5 py-1 text-[12px] disabled:opacity-50 ${confirmResend ? 'btn-danger' : 'btn-primary'}`}
+                  >
+                    {sending ? 'Sending…' : confirmResend ? `Confirm — send again to ${sendToEmail.trim()}?` : 'Send email'}
+                  </button>
                   {confirmResend && (
                     <button onClick={() => setConfirmResend(false)} className="btn btn-ghost px-2.5 py-1 text-[12px]">Cancel</button>
                   )}
@@ -358,8 +384,8 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
                     {contactResult.emails.map((email) => (
                       <div key={email} className="flex items-center justify-between gap-2">
                         <span className="text-[12.5px]">{email}</span>
-                        <button onClick={() => handleCopyField(email, email)} className="text-[11px] font-semibold text-petrol underline underline-offset-2">
-                          {copiedField === email ? 'Copied ✓' : 'Copy'}
+                        <button onClick={() => handleCopyField(email, email, true)} className="text-[11px] font-semibold text-petrol underline underline-offset-2">
+                          {copiedField === email ? 'Copied — set as send-to ✓' : 'Use this email'}
                         </button>
                       </div>
                     ))}
