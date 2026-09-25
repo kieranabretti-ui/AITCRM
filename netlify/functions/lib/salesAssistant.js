@@ -25,7 +25,7 @@ ${buildPriceFacts()}
 
 - Never invent a fact about the prospect's business, their current IT setup, a conversation that didn't happen, or a commitment A-IT hasn't made. If you don't know something, don't claim it.
 - Never promise a specific response time, project timeline, or outcome A-IT hasn't actually committed to — the ${SLA_RESPONSE_HOURS}-hour response SLA is the one concrete commitment you may cite, and only for clients who have (or are being offered) that add-on.
-- Never discount, negotiate, or invent pricing beyond the published figures above. If the opportunity notes mention a specific quoted price, you may reference that figure; otherwise stick to the standard per-device rates.
+- Never discount, negotiate, or invent pricing beyond the published figures above. If the opportunity notes mention a specific quoted price, you may reference that figure; otherwise, if pricing comes up at all, keep it to one simple line — "prices start from £15 per device per month" — never the full Silver/Gold/Platinum breakdown or the SLA add-on figure; that level of detail belongs in a conversation, not a first email.
 - Keep it concise, professional, and free of hard-sell pressure tactics (no artificial urgency, no fake scarcity). British business tone — direct, warm, not salesy.
 - Write only the one email requested for the stated goal; do not draft a whole sequence.
 - If the opportunity has very little information to go on, write a shorter, more general message rather than inventing specifics to fill the gap.
@@ -33,6 +33,7 @@ ${buildPriceFacts()}
 - The email must be ready to send exactly as written. Never leave a bracketed or blank placeholder anywhere — no "[Company Name]", "[insert detail]", "[specific pain point]", or similar gap for a human to fill in. If you don't have a piece of information (e.g. the prospect's name), write around its absence naturally (e.g. address the business by name, or open with "Hi," rather than inventing or blanking out a name).
 - If this is a first-touch/cold email to someone who hasn't engaged with A-IT before (e.g. the goal is introducing A-IT), include one brief, natural, concrete sentence offering an easy opt-out — e.g. that a short reply is all it takes to not hear from A-IT again. Don't make it sound like a mass broadcast; write it like a person who means it.
 - A-IT being Dorset-based is a real fact you can use, not a gimmick to force into every email — when the prospect is also a local Dorset business (check their address/location if given), a brief, natural mention of being local can build rapport (e.g. "we're based just down the road" rather than a distant national vendor); skip it entirely if there's nothing to suggest they're local, or if it wouldn't read naturally in that particular email.
+- The subject line must never contain a dash of any kind — no hyphen, en dash, or em dash (that includes using one to join two phrases, e.g. "IT support - quick question" or "IT support — quick question"). Also avoid colons, semicolons, or a "Re:"-style prefix that wasn't actually a reply. Write it the way a person would type an email subject on their phone: short, plain, a few words, nothing that reads as generated.
 
 Respond only by calling the submit_draft tool.`
 
@@ -57,6 +58,17 @@ function buildUserPrompt({ client, opportunity, goal }) {
   }
 
   return lines.join('\n')
+}
+
+// Belt-and-braces on top of the system prompt's own instruction not
+// to use one — a prompt instruction is a strong nudge, not a
+// guarantee, and a stray em dash in the subject line is exactly the
+// kind of tell that makes a cold email read as AI-written. Strips any
+// hyphen/en dash/em dash (and the horizontal bar/figure dash
+// variants) rather than rejecting the draft outright, since the rest
+// of the subject is still perfectly usable without it.
+function stripDashesFromSubject(subject) {
+  return (subject || '').replace(/\s*[-‐-―]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim()
 }
 
 const DRAFT_TOOL = {
@@ -108,7 +120,7 @@ async function draftSalesMessage({ client, opportunity, goal }) {
     const input = toolUse.input
     return {
       ok: true,
-      subject: input.subject,
+      subject: stripDashesFromSubject(input.subject),
       body: input.body,
       keyPoints: Array.isArray(input.key_points) ? input.key_points : [],
       followUpSuggestion: input.follow_up_suggestion,
