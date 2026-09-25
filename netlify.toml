@@ -15,6 +15,14 @@
 [functions."health-score"]
   schedule = "0 6 * * *"
 
+# Drafts and sends a follow-up email to every Sales opportunity flagged
+# due (see auto-follow-up.js) — off by default, only actually sends
+# anything once AUTO_FOLLOW_UP_ENABLED=1 is set. Runs mid-morning UK
+# time (after health-score, no dependency between the two — just kept
+# off the same 6am slot).
+[functions."auto-follow-up"]
+  schedule = "0 8 * * *"
+
 # React Router uses clean client-side URLs — without this, a direct
 # visit or refresh on those paths 404s.
 [[redirects]]

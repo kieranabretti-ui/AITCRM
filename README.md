@@ -661,18 +661,49 @@ both on its Sales board card and in the drawer — and the draft goal
 picker defaults to "Follow-up — no reply yet" the next time the drawer
 is opened for it.
 
-**This is a visual flag, not automation.** Nothing here drafts or
-sends anything on its own — there's no scheduled function involved,
-deliberately, because this app has no way to know whether a prospect
-actually replied (no inbox integration). A blind "N days later, send
-automatically" system would just as happily re-email someone who
-already wrote back, which is worse than not following up at all — so
-the flag exists to prompt a human to look, not to remove one from the
-loop. Ticking the box (or leaving it ticked) is what actually keeps an
-opportunity out of the flagged state; sending a fresh email
-automatically clears it again, since a new send starts a new cadence.
-`FOLLOW_UP_DUE_DAYS` in `lib/sales.js` is the one place to change the
-5-day window.
+**By default this is a visual flag, not automation.** Nothing drafts
+or sends on its own unless you deliberately turn on the scheduled
+function below — the flag alone exists to prompt a human to look, not
+to remove one from the loop. Ticking the box (or leaving it ticked) is
+what keeps an opportunity out of the flagged state; sending a fresh
+email automatically clears it again, since a new send starts a new
+cadence. `FOLLOW_UP_DUE_DAYS` in `lib/sales.js` is the one place to
+change the 5-day window (also mirrored in `auto-follow-up.js` below —
+keep both in sync).
+
+**Optional: sending the follow-up automatically (`auto-follow-up.js`).**
+A scheduled function exists that drafts and sends the follow-up itself
+for every opportunity flagged due, with no click — but it is **off by
+default** and stays off until you explicitly set
+`AUTO_FOLLOW_UP_ENABLED=1` in Netlify (Site configuration →
+Environment variables, then redeploy or wait for the next scheduled
+run).
+
+Think carefully before turning this on. This app has no inbox
+integration, so it has no way to know whether a prospect actually
+replied — only whether someone ticked "They've replied" in time.
+Turning this on trades "a human reviews every send before it goes out"
+for "a human has to remember to tick replied before day 5" — a real
+behaviour change, not just a convenience switch. A prospect who
+replied on day 4 but hasn't been ticked yet will get a follow-up email
+anyway.
+
+If you do turn it on:
+- It only ever acts on opportunities already flagged due by the same
+  rule the UI uses (5+ days, no reply marked, not won/lost) — nothing
+  new to configure there.
+- Capped at 20 sends per run (`MAX_PER_RUN` in the function) so a
+  backlog — e.g. the first run right after switching this on — can't
+  fire off a burst of real emails all at once. Check the Sales board
+  after first enabling it, before the next scheduled run, to see how
+  many opportunities would actually be affected.
+- Every automatic send is recorded exactly like a manual one
+  (`outreach_sent_at` etc. on the opportunity) plus a client activity
+  entry worded distinctly — *"Follow-up email sent automatically..."*
+  — so it's always obvious in the log which sends were a human's click
+  and which weren't.
+- Runs daily at 8am UK time (`netlify.toml`) — change the `schedule`
+  there to adjust.
 
 ## Local development
 
