@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchOpportunity, updateOpportunity, updateStage, deleteOpportunity, requestSalesDraft, sendOutreachEmail, markReplied } from '../lib/salesApi.js'
+import { fetchOpportunity, updateOpportunity, updateStage, deleteOpportunity, requestSalesDraft, sendOutreachEmail, markReplied, markMailerSent } from '../lib/salesApi.js'
 import { updateClient } from '../lib/clientsApi.js'
 import { findContactInfo } from '../lib/contactFinder.js'
 import { STAGES, DRAFT_GOALS, isFollowUpDue, nextFollowUpAt, pickFollowUpGoalId } from '../lib/sales.js'
@@ -187,6 +187,18 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
     }
   }
 
+  async function handleToggleMailerSent(checked) {
+    const previous = opp.mailer_sent_at
+    setOpp((o) => ({ ...o, mailer_sent_at: checked ? new Date().toISOString() : null }))
+    try {
+      await markMailerSent(opportunityId, checked)
+      onChanged?.()
+    } catch (err) {
+      setOpp((o) => ({ ...o, mailer_sent_at: previous }))
+      setError(err.message)
+    }
+  }
+
   function handleCopyDraft() {
     if (!draftSubject && !draftBody) return
     navigator.clipboard.writeText(`Subject: ${draftSubject}\n\n${draftBody}`).then(() => {
@@ -269,6 +281,28 @@ export default function OpportunityDrawer({ opportunityId, session, onClose, onC
                   {client.website}
                 </a>
               </div>
+            )}
+            {client.registered_address && (
+              <div className="col-span-2">
+                <span className="text-slate">Registered address: </span>{client.registered_address}
+              </div>
+            )}
+            {client.company_number && (
+              <div><span className="text-slate">Company no.: </span>{client.company_number}</div>
+            )}
+          </div>
+
+          <div className="mb-5 rounded-[6px] border border-stone bg-paper-dim p-3">
+            <label className="flex items-center gap-2 text-[12px]">
+              <input
+                type="checkbox"
+                checked={!!opp.mailer_sent_at}
+                onChange={(e) => handleToggleMailerSent(e.target.checked)}
+              />
+              I&rsquo;ve sent a mailer
+            </label>
+            {opp.mailer_sent_at && (
+              <p className="mt-1.5 text-[10.5px] text-slate">Marked as sent {fmtDateTime(opp.mailer_sent_at)} — untick to clear.</p>
             )}
           </div>
 

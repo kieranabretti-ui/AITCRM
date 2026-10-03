@@ -724,8 +724,12 @@ where anyone actually works) and its **site address** (where the
 client actually trades and needs IT support). Adding a lead now fills
 in `company_number` + `registered_address` automatically and leaves
 `site_address` for a team member to confirm once known. Both new
-fields are visible and editable on every client in the drawer
-(Business fieldset, next to Site address).
+fields are visible and editable on every client — in the Clients-page
+drawer (`ClientDrawer.jsx`, Business fieldset, next to Site address)
+**and** in a lead's own Sales-pipeline drawer (`OpportunityDrawer.jsx`,
+in the info grid near the top) — a lead opened from the Sales board
+uses the latter, not the former, so both needed the fields added for
+this to actually be visible wherever someone opens a lead.
 
 **Backfilling existing leads:** leads added before this change have no
 `company_number`/`registered_address` on file. Open **Sales → Find
@@ -749,6 +753,18 @@ It:
   skipped-and-left-alone) this run won't be re-queried pointlessly
   within the same click, though a later click will retry previous
   no-matches/ambiguous ones in case a name was fixed in the meantime.
+
+### 17. "I've sent a mailer" (`014_mailer_sent.sql`)
+
+A plain manual checkbox in each lead's opportunity drawer (just below
+the registered address, above the Stage field) for recording that a
+physical mailshot went out — ticking it sets `mailer_sent_at`,
+unticking clears it, same pattern as the existing "They've replied"
+checkbox. It's entirely independent of the email outreach tracking —
+this app doesn't send, schedule, or track delivery of physical mail,
+it's purely a record a team member sets by hand. Shows as a small
+"✉ Mailed" badge on the Sales board card too, so it's visible at a
+glance without opening the drawer.
 
 ## Local development
 

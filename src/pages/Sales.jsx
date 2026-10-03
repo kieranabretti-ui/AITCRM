@@ -183,6 +183,14 @@ export default function Sales() {
                                 ✉ Sent
                               </span>
                             )}
+                            {o.mailer_sent_at && (
+                              <span
+                                className="rounded-full bg-brass/15 px-1.5 py-0.5 text-[10px] font-semibold text-brass-dark"
+                                title={`Mailer sent ${fmtDateTime(o.mailer_sent_at)}`}
+                              >
+                                ✉ Mailed
+                              </span>
+                            )}
                             <TierBadge tier={o.clients?.tier} />
                           </div>
                         </div>

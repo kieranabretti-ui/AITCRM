@@ -99,6 +99,17 @@ export async function markReplied(id, replied) {
   if (error) throw error
 }
 
+// Ticking "I've sent a mailer" — a plain manual record of a physical
+// mailshot, entirely independent of the email outreach tracking above.
+// Nothing in this app sends or schedules physical mail.
+export async function markMailerSent(id, sent) {
+  const { error } = await supabase
+    .from('sales_opportunities')
+    .update({ mailer_sent_at: sent ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+}
+
 async function callFunction(path, body, accessToken) {
   const res = await fetch(`/.netlify/functions/${path}`, {
     method: 'POST',
