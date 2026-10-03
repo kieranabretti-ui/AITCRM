@@ -112,4 +112,4 @@ async function findCompanyWebsite(companyName) {
   return null
 }
 
-module.exports = { findCompanyWebsite }
+module.exports = { findCompanyWebsite, significantWords }

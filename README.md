@@ -414,10 +414,11 @@ consultancy, and so on), or any custom SIC code.
 count and named contact details. Companies House doesn't hold either —
 it's a company register, not a marketing database. "Add as
 opportunity" creates the client and a **New**-stage Sales opportunity
-with the registered address on file and a clear note that contact
-details need confirming before any outreach (the registered office is
-also frequently not where a company actually trades — many use an
-accountant's address). If you want verified employee counts and
+with the company number and registered address on file (separate from
+the Site address field — see section 16) and a clear note that
+contact details need confirming before any outreach (the registered
+office is also frequently not where a company actually trades — many
+use an accountant's address). If you want verified employee counts and
 compliant contact data, that's a job for a proper B2B data provider
 (Apollo.io, ZoomInfo, Lusha, Cognism, Data8...) — ask if you'd like a
 CSV importer built for one of those instead.
@@ -710,6 +711,44 @@ If you do turn it on:
   and which weren't.
 - Runs daily at 8am UK time (`netlify.toml`) — change the `schedule`
   there to adjust.
+
+### 16. Registered company details (`013_registered_address.sql`)
+
+**What's new:** `clients` now has two dedicated columns —
+`company_number` and `registered_address` — separate from the existing
+`site_address`. The lead finder previously wrote the Companies House
+registered office straight into `site_address`, which conflated two
+different things: a company's **registered office** (a legal/filing
+address — often an accountant's or formation agent's address, not
+where anyone actually works) and its **site address** (where the
+client actually trades and needs IT support). Adding a lead now fills
+in `company_number` + `registered_address` automatically and leaves
+`site_address` for a team member to confirm once known. Both new
+fields are visible and editable on every client in the drawer
+(Business fieldset, next to Site address).
+
+**Backfilling existing leads:** leads added before this change have no
+`company_number`/`registered_address` on file. Open **Sales → Find
+leads** — there's a **"Backfill now"** button at the top of the panel.
+It:
+
+- Looks up each client missing a `company_number` by name on
+  Companies House (`searchByName()` in `lib/companiesHouse.js`),
+  normalizing both names the same way the website-guesser does (strips
+  "Ltd"/"Limited"/"LLP" etc., punctuation, case) before comparing.
+- Only writes back on an **exact, unambiguous** normalized match. A
+  client whose name doesn't match anything, or matches more than one
+  company, is left alone and counted separately (no guessing) — check
+  those ones manually if you want them filled in.
+- Logs a client activity entry on every successful match, so it's
+  clear in each client's history where the address came from.
+- Works through the whole list in small batches automatically (one
+  click handles however many clients there are) and is safe to run
+  again later — it only ever looks at clients still missing a
+  `company_number`, so anything already filled in (or already
+  skipped-and-left-alone) this run won't be re-queried pointlessly
+  within the same click, though a later click will retry previous
+  no-matches/ambiguous ones in case a name was fixed in the meantime.
 
 ## Local development
 

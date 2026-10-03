@@ -15,6 +15,7 @@ import TicketDrawer from './TicketDrawer.jsx'
 const emptyForm = {
   business_name: '', contact_name: '', contact_email: '', contact_phone: '', website: '',
   secondary_contact_name: '', secondary_contact_phone: '', site_address: '',
+  company_number: '', registered_address: '',
   tier: 'gold', device_count: '', sla_addon: false, status: 'onboarding',
   start_date: '', direct_debit: false, platform: '', on_site_server: false,
   lead_source: '', lead_source_detail: '', notes: '',
@@ -84,6 +85,8 @@ export default function ClientDrawer({ mode: initialMode, client, userId, sessio
       secondary_contact_name: form.secondary_contact_name || '',
       secondary_contact_phone: form.secondary_contact_phone || '',
       site_address: form.site_address || '',
+      company_number: form.company_number || '',
+      registered_address: form.registered_address || '',
       tier: form.tier || 'gold',
       device_count: Number(form.device_count) || 0,
       sla_addon: !!form.sla_addon,
@@ -332,6 +335,8 @@ function ViewBody({
         <ViewItem label="Secondary contact">{c.secondary_contact_name}</ViewItem>
         <ViewItem label="Secondary phone">{c.secondary_contact_phone}</ViewItem>
         <ViewItem label="Site address">{c.site_address}</ViewItem>
+        <ViewItem label="Registered address">{c.registered_address}</ViewItem>
+        <ViewItem label="Company number">{c.company_number}</ViewItem>
         <ViewItem label="Start date">{fmtDate(c.start_date)}</ViewItem>
         <ViewItem label="Next review">
           <span className="flex flex-wrap items-center gap-1.5">
@@ -562,6 +567,10 @@ function EditForm({ form, setForm }) {
         <Legend>Business</Legend>
         <Field label="Business name *" value={form.business_name} onChange={(v) => set('business_name', v)} />
         <Field label="Site address" value={form.site_address} onChange={(v) => set('site_address', v)} />
+        <div className="grid grid-cols-2 gap-3.5">
+          <Field label="Registered address" value={form.registered_address} onChange={(v) => set('registered_address', v)} />
+          <Field label="Company number" value={form.company_number} onChange={(v) => set('company_number', v)} />
+        </div>
       </fieldset>
 
       <fieldset>

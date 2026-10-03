@@ -61,6 +61,30 @@ export async function enrichLead(companyName, accessToken) {
   return callFunction('enrich-lead', { companyName }, accessToken)
 }
 
+// Repeatedly calls the backfill endpoint in small batches until
+// there's nothing left to do, so a one-off click handles however many
+// existing leads there are regardless of batch size. Passes back the
+// ids it's already seen each round (whether updated or skipped) so the
+// function moves on to the next batch instead of re-fetching the same
+// unresolved rows forever — a client with no exact Companies House
+// match stays missing a company_number, so without this the "oldest
+// unresolved first" query would get stuck re-selecting it every round.
+export async function backfillRegisteredAddresses(accessToken, onProgress) {
+  const totals = { updated: 0, noMatch: 0, ambiguous: 0, failed: 0 }
+  const seenIds = []
+  for (;;) {
+    const batch = await callFunction('backfill-registered-addresses', { limit: 15, excludeIds: seenIds }, accessToken)
+    totals.updated += batch.updated
+    totals.noMatch += batch.noMatch
+    totals.ambiguous += batch.ambiguous
+    totals.failed += batch.failed
+    seenIds.push(...(batch.processedIds || []))
+    onProgress?.({ ...totals, remaining: batch.remaining })
+    if (batch.processed === 0 || batch.remaining === 0) break
+  }
+  return totals
+}
+
 export function formatAddress(address) {
   if (!address) return ''
   return [address.line1, address.line2, address.locality, address.region, address.postcode]

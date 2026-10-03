@@ -1,5 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { DORSET_LOCALITIES, SIC_PRESETS, COMPANY_STATUSES, searchLeads, enrichLead, formatAddress } from '../lib/leadFinder.js'
+import {
+  DORSET_LOCALITIES, SIC_PRESETS, COMPANY_STATUSES, searchLeads, enrichLead, formatAddress,
+  backfillRegisteredAddresses,
+} from '../lib/leadFinder.js'
 import { createOpportunityForNewLead } from '../lib/salesApi.js'
 import { updateClient, addActivity } from '../lib/clientsApi.js'
 import { fmtDate } from '../lib/pricing.js'
@@ -66,6 +69,9 @@ export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded 
   const [addedNumbers, setAddedNumbers] = useState(new Set(saved?.addedNumbers ?? []))
   const [addingNumber, setAddingNumber] = useState(null)
   const [enrichStatus, setEnrichStatus] = useState({})
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillResult, setBackfillResult] = useState(null)
+  const [backfillError, setBackfillError] = useState('')
 
   // Persist the search form, its results, and which leads were
   // already added — every change, so a reload mid-session loses
@@ -130,8 +136,9 @@ export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded 
       const opp = await createOpportunityForNewLead(
         {
           business_name: company.companyName,
-          site_address: formatAddress(company.address),
-          notes: `Found via the Companies House lead finder (company no. ${company.companyNumber}${sicLabel ? `, ${sicLabel}` : ''}, incorporated ${company.incorporatedOn || 'unknown'}).\nThis is the registered office address, which may differ from where they actually trade. Employee count and contact details aren't available from Companies House — confirm these directly before reaching out.`,
+          company_number: company.companyNumber,
+          registered_address: formatAddress(company.address),
+          notes: `Found via the Companies House lead finder (company no. ${company.companyNumber}${sicLabel ? `, ${sicLabel}` : ''}, incorporated ${company.incorporatedOn || 'unknown'}).\nThe registered address on file is their registered office, which may differ from where they actually trade — fill in Site address once you know it. Employee count and contact details aren't available from Companies House — confirm these directly before reaching out.`,
         },
         { stage: 'new' },
         userId,
@@ -143,6 +150,26 @@ export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded 
       setError(err.message)
     } finally {
       setAddingNumber(null)
+    }
+  }
+
+  // One-off (but safely re-runnable) tool for clients added before
+  // company_number/registered_address existed — looks each one up on
+  // Companies House by name and only fills in an exact, unambiguous
+  // match. See backfill-registered-addresses.js for how conservative
+  // that matching is.
+  async function handleBackfill() {
+    setBackfilling(true)
+    setBackfillError('')
+    setBackfillResult(null)
+    try {
+      const totals = await backfillRegisteredAddresses(session.access_token, setBackfillResult)
+      setBackfillResult(totals)
+      if (totals.updated > 0) onLeadAdded?.()
+    } catch (err) {
+      setBackfillError(err.message || 'Backfill failed.')
+    } finally {
+      setBackfilling(false)
     }
   }
 
@@ -192,6 +219,28 @@ export default function LeadFinderPanel({ session, userId, onClose, onLeadAdded 
             {error && (
               <p className="mb-4 rounded-[6px] border border-status-churned/30 bg-status-churned/10 p-3 text-[13px] text-status-churned">{error}</p>
             )}
+
+            <div className="mb-4 rounded-[6px] border border-stone bg-paper-dim p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[12.5px] font-semibold">Existing leads missing a registered address?</div>
+                  <p className="mt-0.5 text-[11.5px] text-slate">
+                    Looks each one up on Companies House by name — only fills it in on an exact, unambiguous match.
+                  </p>
+                </div>
+                <button onClick={handleBackfill} disabled={backfilling} className="btn btn-ghost shrink-0 px-2.5 py-1 text-[12px] disabled:opacity-50">
+                  {backfilling ? 'Working…' : 'Backfill now'}
+                </button>
+              </div>
+              {backfillError && <p className="mt-2 text-[12px] text-status-churned">{backfillError}</p>}
+              {backfillResult && (
+                <p className="mt-2 text-[11.5px] text-slate">
+                  {backfillResult.updated} updated · {backfillResult.noMatch} no match · {backfillResult.ambiguous} ambiguous
+                  {backfillResult.failed ? ` · ${backfillResult.failed} failed` : ''}
+                  {backfilling && typeof backfillResult.remaining === 'number' ? ` · ${backfillResult.remaining} left to check` : ''}
+                </p>
+              )}
+            </div>
 
             <div className="mb-3.5">
               <label className="mb-1.5 block text-[12.5px] font-semibold">Towns (registered office locality)</label>
